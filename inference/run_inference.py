@@ -228,7 +228,7 @@ def run_inference(
 
     # 1. Load Raw Volume
     print(f"Loading input volume: {input_path}...", flush=True)
-    raw_vol = tifffile.imread(input_path)
+    raw_vol = np.asarray(np.load(input_path, mmap_mode='r')) if input_path.lower().endswith('.npy') else tifffile.imread(input_path)
     if raw_vol.dtype == bool:
         vol_float = raw_vol.astype(np.float32)
         raw_binary = raw_vol.astype(np.float32)

@@ -1,565 +1,501 @@
-# 3D Fiber Resolution, Dual Neural Field & Topology Optimization Framework
+# Fiber Segmentation Pipeline
 
-A complete deep learning and geometric graph optimization framework for high-resolution 3D fiber microstructure segmentation, centerline extraction, transverse $H$-junction severing, and crossing resolution in dense biomaterials and micro-CT tomography volumes (collagen networks, fibrous composites, Altendorf-Jeulin stochastic models).
+Instance segmentation of individual fibers in 3D microscopy and micro-CT volumes (collagen networks, fibrous composites, electrospun scaffolds).
+
+The pipeline combines two 3D U-Nets, which predict a centerline potential field and a fiber orientation field, with a graph-based topology optimizer that separates touching and crossing fibers into continuous, individually labeled instances.
+
+**Input:** a 3D grayscale or binary volume (`.tif`, `.tiff` or `.npy`).
+**Output:** a labeled instance volume and labeled centerlines (16-bit TIFF), optionally a GeoDict `.gad` fiber model.
 
 ---
 
-## ⚡ Quick Start (Zero-Flag Execution)
+## Contents
 
-Run the full pipeline out-of-the-box with default auto-discovery and sensible hyperparameters:
+1. [Installation](#installation)
+2. [Quick Start](#quick-start)
+3. [Outputs](#outputs)
+4. [Training Your Own Models](#training-your-own-models)
+5. [Interactive Curation Tool](#interactive-curation-tool)
+6. [Running Stages Individually](#running-stages-individually)
+7. [How It Works](#how-it-works)
+8. [Command-Line Reference](#command-line-reference)
+9. [Project Structure](#project-structure)
+10. [Testing](#testing)
+11. [License](#license)
+
+---
+
+## Installation
+
+Requirements:
+
+- Python 3.10 or newer
+- An NVIDIA GPU with CUDA is strongly recommended (8 GB of VRAM or more). The pipeline also runs on CPU, but considerably slower.
 
 ```bash
-# 1. Place raw synthetic models into data/synthetic/raw/ & precompute datasets:
-python prepare_datasets.py
-
-# 2. Start Interactive 3D Fiber Curator (Annotate initial patches from data/fibers_to_segment/)
-python curation_tool/app.py
-
-# 3. Train Specialist Models (On-the-fly biological spline morphing, 50 epochs)
-python training/train_both.py
-
-# 4. Sliding-Window Neural Inference (Auto-grabs volume in data/fibers_to_segment/, outputs to outputs/)
-python inference/run_inference.py
-
-# 5. Global Topology Optimization (Direct degree-1 matching, 32px border severing)
-python inference/run_topology_optimization.py
-
-# OR 1-Click Master End-to-End Resolution:
-python run_end_to_end.py
+git clone https://github.com/Kataevskii/fiber_segmentation_pipeline.git
+cd fiber_segmentation_pipeline
+pip install -r requirements.txt
 ```
+
+For GPU support, install the PyTorch build that matches your CUDA version by following the instructions at [pytorch.org](https://pytorch.org/get-started/locally/) **before** running `pip install -r requirements.txt`.
+
+Dependencies: PyTorch, NumPy, SciPy, scikit-image, tifffile, Matplotlib, tqdm, Flask and Flask-CORS.
 
 ---
 
-## 🔄 Iterative Active Learning & Retraining Workflow
+## Quick Start
 
-The framework is designed around a closed-loop **Active Learning Flywheel**: rather than manually annotating thousands of dense 3D voxels from scratch, you rapidly bootstrap from precomputed synthetic data, inspect, crop errors from segmented outputs, and incrementally retrain:
+### 1. Provide model checkpoints
 
-```mermaid
-flowchart TD
-    subgraph S0 ["0. Synthetic Data Preparation"]
-        P0["Place Raw Synthetic Data in data/synthetic/raw/<br/>(AJ_model_*.tif + AJ_model_*.gad)"]
-        P0_PREP["Precompute Memory-Mapped Datasets (10% Test Split)<br/>(python prepare_datasets.py)"]
-        P0 --> P0_PREP
-    end
+The pipeline needs two trained networks:
 
-    subgraph S1 ["1. Bootstrap Curation"]
-        A1["Open Microscopy Volume in 3D Fiber Curator<br/>(python curation_tool/app.py)"]
-        A2["Extract Random 96³ Patches & Annotate Initial Centerlines<br/>(Space to Solve Geodesics, Enter to Save Ground Truth)"]
-        A1 --> A2
-    end
-
-    subgraph S2 ["2. Specialist Model Training"]
-        B1["Launch Specialist Training with On-The-Fly Morphing<br/>(python training/train_both.py)"]
-        B2["GAD Spline Bank Deformations + 25% Real Biological Stamping"]
-        B1 --- B2
-    end
-
-    subgraph S3 ["3. Full Volume Automated Resolution"]
-        C1["Run End-to-End Inference & Topology Optimization<br/>(python run_end_to_end.py)"]
-        C2["Export Segmented 3D Instance Volume & Centerlines<br/>(outputs/fiber_resolution_final/instance_volume.tif)"]
-        C1 --> C2
-    end
-
-    subgraph S4 ["4. Error Inspection & Crop Curation"]
-        D1["Load Segmented TIFF back into 3D Fiber Curator<br/>(Auto-skeletonizes all 40+ predicted fiber instances)"]
-        D2["Inspect Challenging Crossings & Crop Wrong Fibers<br/>(Disconnect bad bridges, adjust waypoints, split false merges)"]
-        D3["1-Click Ground Truth Patch Export (Enter)"]
-        D1 --> D2 --> D3
-    end
-
-    subgraph S5 ["5. Active Learning Retraining"]
-        E1["Fine-Tune Specialists with Expanded Real Ground Truth Pool<br/>(python training/train_both.py --pretrained)"]
-    end
-
-    P0_PREP --> B1
-    A2 --> B1
-    B2 --> C1
-    C2 --> D1
-    D3 --> E1
-    E1 -->|Deploy Improved Specialists| C1
-
-    style S0 fill:#131826,stroke:#f59e0b,stroke-width:1.5px,color:#fff
-    style S1 fill:#131826,stroke:#38bdf8,stroke-width:1.5px,color:#fff
-    style S2 fill:#131826,stroke:#a855f7,stroke-width:1.5px,color:#fff
-    style S3 fill:#131826,stroke:#3b82f6,stroke-width:1.5px,color:#fff
-    style S4 fill:#131826,stroke:#f43f5e,stroke-width:1.5px,color:#fff
-    style S5 fill:#131826,stroke:#10b981,stroke-width:2px,color:#fff
+```
+checkpoints/best_intensity_unet.pth
+checkpoints/best_orientation_unet.pth
 ```
 
-### Step-by-Step Workflow & Retraining Loop:
+Checkpoints are not stored in the repository. Either copy existing checkpoints into `checkpoints/`, or train them yourself as described in [Training Your Own Models](#training-your-own-models).
 
-1. **Place Raw Synthetic Data into `data/synthetic/raw/` & Run Precomputation**:
-   - Place your raw Altendorf-Jeulin synthetic volume and geometry files (`AJ_model_1.tif` .. `AJ_model_10.tif` and `AJ_model_1.gad` .. `AJ_model_10.gad`) into `data/synthetic/raw/`. Synthetic data can be generated, for example, using the [Altendorf-Jeulin Model repository](https://github.com/matthiasne/Altendorf-Jeulin-Model).
-   - Run `python prepare_datasets.py` to precompute memory-mapped continuous potential ($I \in [-1, 1]$) and unit orientation tangent fields ($\vec{O} \in \mathbb{R}^3$). By default, **10% of the raw models are split into `data/synthetic/precomputed/test/`** for test evaluation, while **90% are stored in `data/synthetic/precomputed/train/`** for training. If the test split contains no models (e.g. only 1 raw model was precomputed), testing is automatically skipped during training without error.
+### 2. Add your volume
 
-2. **Segment Initial Random Patches**:
-   - Drop your microscopy volume into `data/fibers_to_segment/`.
-   - Launch the Fiber Curator (`python curation_tool/app.py`).
-   - Click **`🎲 Random 96³`** to sample dense regions. Trace a few clean fiber strands using interactive seed pins.
-   - Press **`Space`** to compute continuous geodesic paths, then press **`Enter`** to save clean ground truth triplets into `data/curated/patches/`.
+Copy the volume to segment into `data/fibers_to_segment/`:
 
-3. **Launch Initial Specialist Training**:
-   - Run `python training/train_both.py` to train both `IntensityUNet3D` and `OrientationUNet3D`.
-   - On-the-fly spline morphing mathematically deforms your curated donor fibers onto thousands of synthetic trajectories with a 25% patch stamping rate, producing robust models from minimal manual data. Checkpoints save to `checkpoints/`.
-
-4. **Infer & Optimize Full Volumes**:
-   - Run `python run_end_to_end.py` to generate the complete 3D segmented instance stack (`outputs/fiber_resolution_final/instance_volume.tif`).
-
-5. **Crop & Fix Erroneous Fibers from Segmented Results**:
-   - Open `instance_volume.tif` directly in the Fiber Curator.
-   - The tool instantly skeletonizes all segmented labels in 3D.
-   - Locate any false merges, over-connected rungs, or broken segments. Delete erroneous fiber centerlines, crop out bad bridges, and fix difficult crossings.
-   - Press **`Enter`** to save the corrected sub-volumes as high-value "hard negative / hard positive" training samples into `data/curated/patches/`.
-
-6. **Iterative Retraining**:
-   - Retrain your specialists warm-started from the previous checkpoints:
-     ```bash
-     python training/train_both.py --pretrained
-     ```
-   - Each iteration progressively eliminates edge cases and reinforces accurate topology at complex multi-fiber junctions.
-
----
-
-## 💻 Command Reference & Usage Guide
-
-### 1. Place Raw Synthetic Data in `data/synthetic/raw/` & Run Precomputation
-Place raw synthetic files (`AJ_model_*.tif` and `AJ_model_*.gad`) into `data/synthetic/raw/`, then precompute analytical ground-truth orientation and signed probability fields into memory-mapped NPY format with a default **10% test split**:
-
-> [!TIP]
-> **Generating Synthetic Data**: Synthetic fiber volumes and matching `.gad` geometric models can be generated, for example, using the [Altendorf-Jeulin Model generator](https://github.com/matthiasne/Altendorf-Jeulin-Model).
-
-```bash
-# Precompute datasets (splits 10% into test and 90% into train by default):
-python prepare_datasets.py
-
-# Optional: Custom test split fraction or force overwrite:
-python prepare_datasets.py --test-split 0.10 --overwrite
+```
+data/fibers_to_segment/my_sample.tif
 ```
 
----
+Accepted formats are 3D `.tif` / `.tiff` stacks and `.npy` arrays, with axes ordered `(Z, Y, X)`. The volume should be 8-bit grayscale (0–255), binary, or floating point in the range 0–1. Convert 16-bit data to 8-bit beforehand (for example in Fiji with `Image > Type > 8-bit`).
 
-### 2. Interactive 3D Fiber Curator Web App
-Start the WebGL Three.js annotation server to inspect volumes, load segmented instances, fix wiring, and curate real training samples:
-
-```bash
-python curation_tool/app.py
-```
-Open **[http://127.0.0.1:5000](http://127.0.0.1:5000)** in your web browser:
-1. Click **`📁 Upload Volume`** in the top navbar to select any `.tif`, `.tiff`, or `.npy` file from your PC (or simply drag-and-drop the file directly onto the browser window, or click **`📂 Presets`**).
-2. Select any segmented TIFF (e.g. `outputs/instance_volume.tif`) or raw microscopy volume.
-3. The engine automatically runs 3D skeletonization across all segmented fibers in the 96³ cube, extracts endpoints & waypoints, and renders all 40+ 3D fiber tracks.
-4. **Orient with 3D Coordinate Arrows**: Use the 3D scene coordinate arrows anchored directly next to the cube origin (Red: +X width, Green: +Y height, Cyan: +Z depth) that orbit with natural 3D depth and perspective.
-5. **Fix wiring**: Select a fiber ID, adjust or add/delete waypoints, split false mergers, or reconnect broken fibers.
-6. Press **`Space`** to re-resolve geodesic continuous paths and inspect updated 3D centerlines.
-7. Press **`Enter`** to save the curated 96³ patch directly into `data/curated/patches/`.
-
----
-
-### 2b. Selectively Extract Donor Fibers for Stamping & Morphing
-All curated patches in `data/curated/patches/` are automatically used as **full 3D training volumes** (in `real_pool` and `volume_paths`). 
-
-If some real patches contain unusual fibers (e.g. very large/abnormal fibers) that should not be stamped into synthetic patches or morphed onto splines, you can selectively extract individual fibers only from the patches you designate as clean donors:
-
-```bash
-# Check extraction status of all curated patches:
-python scripts/extract_individual_fibers.py --list
-
-# Extract individual fiber stamps from a specific patch:
-python scripts/extract_individual_fibers.py --patch patch_0001
-python scripts/extract_individual_fibers.py --patch 1
-
-# Extract individual fibers from multiple patches:
-python scripts/extract_individual_fibers.py --patches 1 2 3
-
-# Remove extracted fibers for a patch (retains full volume for training):
-python scripts/extract_individual_fibers.py --remove patch_0004
-
-# Clear all extracted individual fibers:
-python scripts/extract_individual_fibers.py --clear
-```
-
-- Individual single-fiber stamps are saved to `data/curated/individual_fibers/`.
-- The morphing spline library (`data/curated/fiber_library.pkl`) is automatically synchronized to reflect only the extracted donor patches.
-
----
-
-### 3. Train Specialist Models (On-The-Fly Morphing)
-Default settings automatically use 10-block/epoch dynamic biological morphing, 50 epochs, 64³ patch size, and batch size 4:
-
-```bash
-# 1-Command: Train both specialists with full biological morphing
-python training/train_both.py
-
-# Train individual specialists standalone:
-python training/train_intensity.py
-python training/train_orientation.py
-
-# Optional: Train on ONLY real curated patches (no synthetic data)
-python training/train_both.py --real-only --train-on-all-data --pretrained
-```
-
-> [!NOTE]
-> **Automatic Test Skip**: The training pipeline looks for test sets in `data/synthetic/precomputed/test/`. If no test triplets are present (e.g. when working with a single precomputed synthetic volume), testing is safely skipped with an informative notice, allowing training to complete without error.
-
----
-
-### 4. Run Sliding-Window Inference
-Generates continuous potential and tangent fields from your microscopy volume (auto-detected as first file in `data/fibers_to_segment/` and saved to `outputs/fiber_intensity.npy`, `outputs/fiber_orientation.npy`):
-
-```bash
-# 1-Command: Run both Intensity & Orientation specialists
-python inference/run_inference.py
-
-# Optional overrides:
-python inference/run_inference.py --input data/fibers_to_segment/sample.tif --output-prefix outputs/custom_run
-```
-
----
-
-### 5. Run Topology Optimization Standalone
-Optimizes topology directly from precomputed neural fields (auto-detects the volume from `data/fibers_to_segment/` and neural fields from `outputs/`) using **direct whole-volume degree-1 linear assignment matching** (32px boundary loop severing, <5 vx short fiber filtering, and connected-component bounded Voronoi diffusion without empty-voxel bleed):
-
-```bash
-# 1-Command: Run global topology optimization on default volume from data/fibers_to_segment/
-python inference/run_topology_optimization.py
-
-# Optional: Chunked mode with overlap consensus for multi-gigavoxel volumes
-python inference/run_topology_optimization.py --mode chunked --chunk-size 512 --overlap 256
-```
-
-#### Output Artifacts:
-- `instance_volume.tif`: 16-bit compressed TIFF stack of segmented 3D fiber instances.
-- `instance_skeleton.tif`: 16-bit compressed TIFF stack of labeled 1-voxel mathematical centerlines.
-- `fiber_length_histogram.png`: Global fiber length distribution plot.
-- `instance_volume.npy` & `instance_skeleton.npy`: *(Optional, off by default)* Memory-mapped int32 NumPy volumes produced when `--export-npy` is specified.
-
----
-
-### 6. 1-Click End-to-End Master Resolution
-Runs GPU neural inference on raw microscopy and executes full topology optimization in a single command:
+### 3. Run the pipeline
 
 ```bash
 python run_end_to_end.py
 ```
 
----
+Without arguments, the script processes the first volume found in `data/fibers_to_segment/` and writes the results to `outputs/fiber_resolution_final/`. To choose the input and output explicitly:
 
-## 📑 Deep-Dive & Architecture Table of Contents
-
-- [Core Principles & Decoupled Neural Fields](#core-principles--decoupled-neural-fields)
-- [On-The-Fly Dynamic Spline Morphing & Augmentation Engine](#on-the-fly-dynamic-spline-morphing--augmentation-engine)
-- [Framework Architecture](#framework-architecture)
-- [Topology Optimization Formulation](#topology-optimization-formulation)
-- [Why H-Junctions Occur and How They Are Resolved](#why-h-junctions-occur-and-how-they-are-resolved)
-- [Border Margin Trimming & Boundary Hairpin Elimination (`--cut-border`)](#border-margin-trimming--boundary-hairpin-elimination---cut-border)
-- [Interactive 3D Fiber Curator Web App & Engine](#interactive-3d-fiber-curator-web-app--engine)
-- [Export Formats (16-bit TIFF & Optional NPY)](#export-formats-16-bit-tiff--optional-npy)
-- [Directory Structure](#directory-structure)
-- [Disclosure & AI Assistance](#disclosure--ai-assistance)
-
----
-
-## 💡 Core Principles & Decoupled Neural Fields
-
-Rather than predicting fragile 1-voxel binary masks that coalesce touching fibers, this system decouples fiber segmentation into two specialist neural fields:
-
-1. **3D Continuous Radial Intensity Potential Field $I(\vec{x}) \in [-1.0, 1.0]$**:
-   - Peaks at $+1.0$ on the exact 1-voxel mathematical centerline $\mathcal{C}$.
-   - Decays smoothly with Gaussian profile $G(\vec{x}) = \exp(-d(\vec{x}, \mathcal{C})^2 / 2\sigma^2)$.
-   - Dips to negative values ($-1.0$) at multi-fiber crossing interfaces to force topological disconnectivity.
-   - Supervised via `IntensityLoss`: Foreground-weighted MSE ($W(\vec{x}) = 1.0 + 3.0 \cdot \mathbb{I}(|I_{\text{gt}}| > 0.05) + 4.0 \cdot \mathbb{I}(I_{\text{gt}} > 0.30)$), continuous soft centerline Dice loss, and negative intersection dip loss.
-2. **3D Continuous Unit Tangent Field $\vec{O}(\vec{x}) = (V_z, V_y, V_x)$ ($\|\vec{O}\| = 1.0$)**:
-   - Predicts the unit orientation tangent vector at every foreground voxel.
-   - Supervised via `OrientationLoss`: Symmetric cosine alignment ($1 - |\vec{u} \cdot \vec{v}|$) weighted by foreground potential magnitude.
-
----
-
-## 🧬 On-The-Fly Dynamic Spline Morphing & Augmentation Engine
-
-To eliminate the synthetic-to-real domain gap without requiring thousands of manually labeled voxels, the pipeline dynamically deforms real biological donor fibers onto continuous 3D mathematical splines on-the-fly:
-
-```mermaid
-flowchart TD
-    subgraph S1 ["1. Spline Bank Sampling"]
-        A["Sample 96³ Spline Geometry<br/>(GAD Bank: 5,120 Splines)"]
-    end
-
-    subgraph S2 ["2. 3D Continuous Augmentations"]
-        B1["Spatial 3D Jitter (±2.5 vx)"]
-        B2["Sinusoidal Micro-Crimp / Wobble"]
-        B3["8 Mirror Symmetries (Z, Y, X Flips)"]
-        B4["48 Orthogonal 3D Rotations"]
-    end
-
-    subgraph S3 ["3. Biological Sleeve Morphing"]
-        C["Backward-Warp Real Biological Sleeves<br/>(237 Curated Donor Fibers)"]
-    end
-
-    subgraph S4 ["4. Analytical Target Synthesis"]
-        D1["Continuous Gaussian Centerline Potential<br/>I(x) ∈ [-1.0, 1.0]"]
-        D2["Unit Tangent Orientation Field<br/>O(x) ∈ ℝ³ (||O|| = 1.0)"]
-    end
-
-    subgraph S5 ["5. Dynamic Multi-Block Pool"]
-        E["Continuous Uniform 3D Sampling across [0..32]³<br/>(10 Fresh Blocks/Epoch + 28 Real Curated Blocks)"]
-        F["Ultra-High Throughput Training<br/>(> 125 crops/sec, 0ms stall)"]
-    end
-
-    A --> B1 & B2 & B3 & B4
-    B1 & B2 & B3 & B4 --> C
-    C --> D1 & D2
-    D1 & D2 --> E
-    E --> F
-
-    style S1 fill:#1a1d2e,stroke:#3b82f6,stroke-width:1.5px,color:#fff
-    style S2 fill:#1a1d2e,stroke:#8b5cf6,stroke-width:1.5px,color:#fff
-    style S3 fill:#1a1d2e,stroke:#ec4899,stroke-width:1.5px,color:#fff
-    style S4 fill:#1a1d2e,stroke:#10b981,stroke-width:1.5px,color:#fff
-    style S5 fill:#1a1d2e,stroke:#f59e0b,stroke-width:1.5px,color:#fff
+```bash
+python run_end_to_end.py --input data/fibers_to_segment/my_sample.tif --out outputs/my_sample
 ```
 
-### Key Technical Innovations:
-- **Sub-Voxel Centroid Auto-Centering (`_center_curve_to_mask`)**: Eliminates discrete Dijkstra corner-cutting drift across all 14 curated real patches (reduced from $1.26\text{ vx} \to 0.66\text{ vx}$ noise floor).
-- **Continuous Segment Projection (`project_points_onto_curve_continuous`)**: Fully vectorized NumPy projection onto continuous 3D segments rather than discrete integer nodes.
-- **Geodesic Candidate Selection (`get_candidate_voxels_fast`)**: Spherical geodesic dilation along 1D paths delivers a **200x speedup** for 3D deformation.
+### 4. Inspect the results
+
+Open `outputs/fiber_resolution_final/instance_volume.tif` in any of the following tools:
+
+| Tool | How to view the instances |
+| :--- | :--- |
+| **Fiji / ImageJ** | `File > Open`, then `Image > Lookup Tables > glasbey_on_dark`. Use `Plugins > 3D Viewer` for a 3D rendering. |
+| **napari** | `napari outputs/fiber_resolution_final/instance_volume.tif`, then convert the layer to a *Labels* layer. |
+| **3D Slicer / Dragonfly** | Import the file as a label map / multi-label segmentation. |
+
+Each fiber has its own integer value (1, 2, …, N); the background is 0.
 
 ---
 
-## 🧠 Framework Architecture
+## Outputs
 
-```mermaid
-flowchart TD
-    IN["Input 3D Volume Patch (1 × 64 × 64 × 64)"] --> SPLIT{"Neural Sliding Window"}
-    
-    subgraph DUAL_UNET ["Dual Specialist Neural Field Inference"]
-        SPLIT -->|Sub-volume Crops| UNET_INT["Intensity Specialist U-Net<br/>(IntensityUNet3D)"]
-        SPLIT -->|Sub-volume Crops| UNET_ORI["Orientation Specialist U-Net<br/>(OrientationUNet3D)"]
-        
-        UNET_INT --> HEAD_INT["Tanh Potential Head"]
-        UNET_ORI --> HEAD_ORI["L2-Normalized Tangent Head"]
-        
-        HEAD_INT --> OUT_INT["Radial Centerline Potential I(x) ∈ [-1, 1]"]
-        HEAD_ORI --> OUT_ORI["Continuous Tangent Field O(x) ∈ ℝ³"]
-    end
+`run_end_to_end.py` writes the following files to the output directory:
 
-    OUT_INT & OUT_ORI --> TOP_OPT
+| File | Default | Description |
+| :--- | :---: | :--- |
+| `instance_volume.tif` | yes | 16-bit compressed TIFF. Every foreground voxel carries the ID of the fiber it belongs to. |
+| `instance_skeleton.tif` | yes | 16-bit compressed TIFF. One-voxel-thick centerlines, labeled with the same IDs. |
+| `fiber_length_histogram.png` | yes | Distribution of fiber centerline lengths. |
+| `instance_fibers.gad` | `--export-gad` | GeoDict fiber model: ordered centerline points and local radii for each fiber. |
+| `instance_volume.npy`, `instance_skeleton.npy` | `--export-npy` | Uncompressed `int32` NumPy arrays. Disabled by default because of their size. |
 
-    subgraph TOP_OPT ["Global Topology Optimization Pipeline"]
-        direction TB
-        ST1["Stage 1: 3D Medial Axis Thinning & Spur Pruning"]
-        ST2["Stage 2: Context-Preserving Margin Cut (--cut-border)"]
-        ST3["Stage 3: Orientation-Guided Transverse H-Severing"]
-        ST4["Stage 4: Vectorized Fragment Graph & Durable Endpoints"]
-        ST5["Stage 5: Direction-Durable Multi-Probe Gap Search"]
-        ST6["Stage 6: Global Min-Cost Matching (Degree ≤ 1, No Cycles)"]
-        ST7["Stage 7: Short Fiber Filtering (< 5 vx)"]
-        ST8["Stage 8: Connected-Component Bounded Diffusion (open_memmap)"]
+Example with optional exports:
 
-        ST1 --> ST2 --> ST3 --> ST4 --> ST5 --> ST6 --> ST7 --> ST8
-    end
+```bash
+# GeoDict model with a physical voxel size of 1 µm
+python run_end_to_end.py --export-gad --gad-voxel-size 1e-06
 
-    subgraph OUTPUTS ["Export & Scientific Downstream"]
-        ST8 --> EXP_VOL["Instance Volume<br/>(uint16 .tif / optional .npy)"]
-        ST8 --> EXP_SKEL["Labeled Centerlines<br/>(uint16 .tif / optional .npy)"]
-        ST8 --> EXP_DIAG["Length Distribution<br/>(fiber_length_histogram.png)"]
-    end
-
-    style DUAL_UNET fill:#131826,stroke:#00e5ff,stroke-width:2px,color:#fff
-    style TOP_OPT fill:#131826,stroke:#a855f7,stroke-width:2px,color:#fff
-    style OUTPUTS fill:#131826,stroke:#10b981,stroke-width:2px,color:#fff
+# Also keep the NumPy arrays
+python run_end_to_end.py --export-npy
 ```
 
 ---
 
-## 📐 Topology Optimization Formulation
+## Training Your Own Models
 
-A good fiber satisfies:
-- **Maximized continuous length**: $-\lambda_\ell \cdot N$
-- **Low curvature**: $+\lambda_\kappa \cdot \bar{\kappa}$
-- **No sharp bends**: flat penalty for any junction kink $> 55^\circ$
-- **No branching**: every fragment endpoint connects to at most ONE partner (degree $\le 1$)
-
-### Objective Function:
-$$\min_{\mathcal{B}} \sum_{b \in \mathcal{B}} \left( w_g \cdot d_{\text{gap}}(b) + w_\theta \arccos|\vec{O}_A \cdot \vec{O}_B| + \mathcal{P}_{\text{durable}}(b) \right)$$
-
-Subject to:
-1. **Degree Constraint**: $\operatorname{deg}(v) \le 1$ for all fragment endpoints $v$.
-2. **No-Cycle Constraint**: Graph contains no closed loops.
-
----
-
-## 🔬 Why H-Junctions Occur and How They Are Resolved
-
-### The Topological Cause (Thinning of 3D Crossing Volumes):
-In continuous 3D space, ground-truth centerlines are simple, non-branching 1D curves. However, fibers have finite physical thickness. When two fibers cross or touch ($d < r_1 + r_2$), their voxelized cylinders merge into a 3D convex intersection solid (diamond). During discrete 3D thinning (e.g. Lee-Kashyap skeletonization on cubic grids), a 4-way ($X$) intersection point is topologically unstable. Thinning naturally collapses the diamond into **two 3-way ($Y$) branching nodes joined by a short transverse $H$-rung**.
-
-### Prevention via Smart Separable Stamping:
-In the data augmentation pipeline ([`core/dataset.py`](core/dataset.py)), we enforce a **Centerline Separability Clearance Criterion**:
-- A candidate fiber stamp is accepted **only if its centerline maintains $\ge 6.0\text{ voxels}$ distance** from all existing fiber centerlines.
-- **Why 6 voxels?** With a $\sigma = 1.0$ Gaussian centerline profile ($I = +1.0$) and a $\sigma_{\text{cross}} = 1.5$ negative intersection dip ($I = -0.5$), a 6-voxel separation guarantees that the two positive centerline peaks remain distinct and separated by a negative energy valley, preventing synthetic $H$-junction formation.
-
-### Resolution in Topology Optimization:
-1. **Orientation-Guided Severing** ([`topology_optimizer/step1_sever_h_junctions.py`](topology_optimizer/step1_sever_h_junctions.py)):
-   If a short branch ($L \le 14\text{ vx}$) has a geometric direction perpendicular ($> 60^\circ$) to its adjacent fiber trunks:
-   $$\text{Perpendicularity} = 1 - |\vec{D}_{\text{rung}} \cdot \vec{O}_{\text{trunk}}| > 0.50 \implies \text{SEVER}$$
-2. **Durable Endpoint Averaging** ([`topology_optimizer/step3_build_fragment_graph.py`](topology_optimizer/step3_build_fragment_graph.py)):
-   Instead of using distorted skeleton voxels at the cut interface, we average $\vec{O}(\vec{x})$ over the **nearest 5 voxels back into the fragment body**.
-3. **Collinear Continuation & Matching** ([`topology_optimizer/step2_bridge_gaps.py`](topology_optimizer/step2_bridge_gaps.py), [`topology_optimizer/step4_optimize_topology.py`](topology_optimizer/step4_optimize_topology.py)):
-   Candidate pairs across the 1–2 voxel intersection gap with high mutual collinearity ($|\vec{O}_A \cdot \vec{O}_B| \ge 0.65$) are stitched straight through under degree $\le 1$ constraints.
-
----
-
-## ✂️ Border Margin Trimming & Boundary Hairpin Elimination (`--cut-border`)
-
-### Why Boundary Hairpins Occur:
-In 3D sliding-window neural network inference, the outermost margins of the volume ($M \approx 16\text{–}32\text{ voxels}$) can suffer from edge padding artifacts and boundary blur. When two parallel biological fibers travel side-by-side toward a volume face ($Y=0, X=0, Z=0$), boundary merge artifacts can connect their endpoints into an artificial **180° U-turn loop (hairpin)**.
-
-If topology optimization is run on the uncropped domain:
-1. The global optimizer traces through this outer boundary loop and unifies both parallel fibers into a **single continuous chain**.
-2. Multi-label Voronoi diffusion then floods both fiber tracks across the entire volume with the same instance label ID.
-3. Cropping the volume *after* diffusion removes the outer loop apex, but leaves the two parallel tracks fused under the same label.
-
-### The Context-Preserving Pre-Cut Solution:
-When `--cut-border <M>` (e.g. `--cut-border 32`) is passed:
-1. **Stage 1 (Centerline Thinning)** runs on the **full volume with full 3D boundary context**, ensuring mathematical centerlines are accurately centered up to the cut plane.
-2. **Pre-Optimization Slicing**: The binary skeleton and memory-mapped input volumes are trimmed by $M$ voxels (`skel = skel[M:D-M, M:H-M, M:W-M]`) **before** Stage 2 (H-severing) and Stage 3 (Fragment Graph Construction).
-3. The outer boundary loops are **completely eliminated before any graph nodes or bridge candidates are created**.
-4. The two incoming strands become **two distinct, independent endpoints** that are resolved as separate straight fibers (e.g. splitting a false 354-vx hairpin into two clean 176-vx tracks).
-
-```mermaid
-flowchart TD
-    V_IN["Full Uncropped Volume: 564³<br/>(Full 3D Boundary Context)"]
-    
-    V_IN --> S1["Stage 1: Medial Axis Thinning & Potential Skeletonization"]
-    
-    S1 --> CUT["✂️ Pre-Optimization Border Slicing<br/>skel[32:532, 32:532, 32:532] → Clean 500³ Core"]
-    
-    subgraph EFFECT ["Topological Hairpin Elimination"]
-        CUT --> E1["Slices outer boundary padding blur & U-turn apexes"]
-        E1 --> E2["Converts artificial 180° loops into 2 distinct independent fiber strands"]
-    end
-    
-    E2 --> S2["Stages 2–8: H-Severing, Fragment Graph, Topology Matching & Voronoi Diffusion"]
-    S2 --> RES["Final Output: Clean Independent 176-vx Strands<br/>(Zero False Hairpin Mergers)"]
-
-    style EFFECT fill:#181825,stroke:#ef4444,stroke-width:1.5px,color:#fff
-    style CUT fill:#2e1065,stroke:#c084fc,stroke-width:2px,color:#fff
-    style RES fill:#064e3b,stroke:#34d399,stroke-width:2px,color:#fff
-```
-
----
-
-## 🛠️ Interactive 3D Fiber Curator Web App & Engine
-
-A high-performance WebGL-powered 3D annotation and geodesic solving suite located in `curation_tool/`:
+Training uses synthetic fiber volumes with known geometry, optionally complemented by manually curated patches from real data.
 
 ```mermaid
 flowchart LR
-    LOAD["📁 Upload Volume / Segmented TIFF<br/>(Drag-and-drop / File Selector)"] --> SKEL["⚡ Automatic 3D Skeletonization<br/>(Extracts Endpoints & Waypoints)"]
-    SKEL --> THREE["🧭 3D WebGL Visualization (Three.js)<br/>(Interactive 3D Scene Axes & Plain Squares)"]
-    THREE --> FIX["🛠️ Fix Wiring & Connect Pins<br/>(Add/Move Waypoints, Split False Merges)"]
-    FIX --> SPACE["⌨️ Press Space: Geodesic Path Solver<br/>(Continuous Minimal-Curvature Centerlines)"]
-    SPACE --> ENTER["💾 Press Enter: 1-Click Ground Truth Export<br/>(Saves to data/curated/patches/)"]
-
-    style LOAD fill:#1e293b,stroke:#38bdf8,stroke-width:1.5px,color:#fff
-    style SKEL fill:#1e293b,stroke:#818cf8,stroke-width:1.5px,color:#fff
-    style THREE fill:#1e293b,stroke:#06b6d4,stroke-width:1.5px,color:#fff
-    style FIX fill:#1e293b,stroke:#f43f5e,stroke-width:1.5px,color:#fff
-    style SPACE fill:#1e293b,stroke:#eab308,stroke-width:1.5px,color:#fff
-    style ENTER fill:#1e293b,stroke:#10b981,stroke-width:2px,color:#fff
+    A[Synthetic volumes] --> B[prepare_datasets.py]
+    B --> D[train_both.py]
+    C[Curated real patches] --> D
+    D --> E[Checkpoints]
+    E --> F[run_end_to_end.py]
 ```
 
-- **🖥️ Direct PC File Picker & Segmented Instance TIFF Loader**: Open any raw volume (`.tif`, `.npy`) or segmented instance output (`outputs/instance_volume.tif`) directly using your native Windows File Explorer dialog or browser file selector.
-- **⚡ Uncapped 3D Skeletonization & Centerline Extraction**: Automatically runs 3D skeletonization across all segmented fiber labels in the 96³ patch (resolving 40+ continuous fibers with $\ge 8\text{ voxels}$), extracts boundary/internal endpoints and intermediate waypoints, and pre-populates interactive fiber seeds.
-- **🛠️ Interactive Wiring Correction & Geodesic Lane Solver**: Inspect predicted fiber paths in 3D WebGL (Three.js), easily fix false mergers, disconnect bad bridges, move waypoints, add missing seeds, and re-solve continuous geodesic paths (`Space`).
-- **Always-Active Visual Crop ROI**: Real-time volume slicing with 1-voxel slider & mouse-wheel precision (`step=1`) without distracting wireframe borders.
-- **💾 1-Click Ground Truth Patch Export**: Press `Enter` to export curated 96³ samples (`.vol`, `.instance`, `.centerline`, `.intensity`, `.ori`, `_meta.json`) directly into `data/curated/patches/` for retraining specialist models.
+### Step 1: Add synthetic data
+
+Place pairs of synthetic volumes and their GeoDict fiber descriptions in `data/synthetic/raw/`. Each `.tif` file must have a `.gad` file with the same name:
+
+```
+data/synthetic/raw/AJ_model_01.tif
+data/synthetic/raw/AJ_model_01.gad
+data/synthetic/raw/AJ_model_02.tif
+data/synthetic/raw/AJ_model_02.gad
+```
+
+Such volumes can be generated, for example, with the [Altendorf-Jeulin model generator](https://github.com/matthiasne/Altendorf-Jeulin-Model) or exported from GeoDict.
+
+### Step 2: Precompute training targets
+
+```bash
+python prepare_datasets.py
+```
+
+This computes the target fields (centerline potential and orientation) for every model and splits them into `data/synthetic/precomputed/train/` and `data/synthetic/precomputed/test/` (90 % / 10 % by default, configurable with `--test-split`). With a single model, all data goes to training and validation is skipped.
+
+### Step 3: Train both networks
+
+```bash
+python training/train_both.py
+```
+
+Defaults: 50 epochs, batch size 4, patches of 64³ voxels. The best weights are written to `checkpoints/best_intensity_unet.pth` and `checkpoints/best_orientation_unet.pth`.
+
+Common variants:
+
+```bash
+# Continue from existing checkpoints
+python training/train_both.py --pretrained
+
+# Train only one of the networks
+python training/train_both.py --mode intensity
+python training/train_both.py --mode orientation
+
+# Fine-tune on curated real patches only
+python training/train_both.py --real-only --train-on-all-data --pretrained
+```
+
+If curated patches exist in `data/curated/`, they are automatically mixed into training (see the next section).
 
 ---
 
-## 💾 Export Formats (16-bit TIFF & Optional NPY)
+## Interactive Curation Tool
 
-To prevent excessive disk usage on large multi-gigavoxel datasets, the pipeline exports 16-bit compressed TIFF stacks by default. Uncompressed memory-mapped `.npy` volumes are voluminous and are disabled by default, but can be exported on demand using the `--export-npy` flag:
+The curation tool is a browser-based 3D editor for correcting segmentations and creating ground-truth patches from real data. These patches improve the models on your specific material.
 
-| File | Format | Description |
+```bash
+python curation_tool/app.py
+```
+
+Then open http://127.0.0.1:5000 in a browser. A different port can be set with the `PORT` environment variable.
+
+### Basic workflow
+
+1. Load a raw volume or a segmentation (for example `outputs/fiber_resolution_final/instance_volume.tif`) via the file dialog or by drag and drop.
+2. A 96³ sub-volume is displayed with its automatically extracted centerlines.
+3. Correct the centerlines: select a fiber, add or remove waypoints, and split falsely merged fibers.
+4. Press `Space` to recompute the centerlines, then `Enter` to save the patch to `data/curated/patches/` and load the next one.
+
+### Keyboard shortcuts
+
+| Key | Action |
+| :--- | :--- |
+| `Space` | Recompute centerlines through the current waypoints |
+| `Enter` | Save the current patch and load the next one |
+| `R` | Load a new random sub-volume |
+| `F` | Focus the camera on the selected fiber |
+| `C` | Reset the crop to the full sub-volume |
+| `V` / `M` | Switch between surface, point-cloud and skeleton display |
+| `1` – `9` | Select the active fiber |
+
+Axis colors in the 3D view: red = X, green = Y, cyan = Z.
+
+### Extracting individual fibers for augmentation
+
+Fibers from curated patches can be extracted individually and then inserted into synthetic training volumes:
+
+```bash
+python scripts/extract_individual_fibers.py --list          # show patches and their status
+python scripts/extract_individual_fibers.py --patches 1 2 3 # extract from selected patches
+python scripts/extract_individual_fibers.py --all           # extract from all patches
+python scripts/extract_individual_fibers.py --remove 4      # remove fibers of one patch
+```
+
+Extracted fibers are stored in `data/curated/individual_fibers/`, and the fiber library `data/curated/fiber_library.pkl` is updated automatically.
+
+### Iterative improvement
+
+A typical refinement loop is:
+
+1. Train an initial model on synthetic data.
+2. Segment a real volume with `run_end_to_end.py`.
+3. Open the result in the curation tool, correct the regions with errors and save them as patches.
+4. Fine-tune with `python training/train_both.py --pretrained`.
+5. Repeat from step 2.
+
+---
+
+## Running Stages Individually
+
+`run_end_to_end.py` chains neural inference and topology optimization. Each stage can also be run on its own, which is useful for tuning the optimizer without repeating inference.
+
+### Neural inference
+
+```bash
+python inference/run_inference.py --input data/fibers_to_segment/my_sample.tif --output-prefix outputs/my_sample
+```
+
+Produces:
+
+- `outputs/my_sample_raw_probability.tif`: centerline potential, 16-bit TIFF (values 0–65535 correspond to 0–1).
+- `outputs/my_sample_orientation_rgb.tif`: orientation field as an 8-bit RGB TIFF, with absolute X, Y, Z components mapped to R, G, B.
+
+### Topology optimization
+
+```bash
+python inference/run_topology_optimization.py \
+    --volume data/fibers_to_segment/my_sample.tif \
+    --intensity outputs/my_sample_raw_probability.tif \
+    --orientation outputs/my_sample_orientation_rgb.tif \
+    --out outputs/my_sample_resolved
+```
+
+For very large volumes, the optimizer can process overlapping blocks:
+
+```bash
+python inference/run_topology_optimization.py --mode chunked --chunk-size 512 --overlap 256
+```
+
+To evaluate the result against a known ground truth, pass the reference `.gad` file with `--gad path/to/model.gad`.
+
+### Border cleanup
+
+Removes a margin from an existing result and relabels fibers that are cut by the new boundary:
+
+```bash
+python topology_optimizer/clean_border_artifacts.py --input outputs/my_sample_resolved --margin 32
+```
+
+---
+
+## How It Works
+
+```mermaid
+flowchart LR
+    V[Input volume] --> NI[Intensity U-Net]
+    V --> NO[Orientation U-Net]
+    NI --> P[Centerline potential]
+    NO --> O[Orientation field]
+    P --> T[Topology optimization]
+    O --> T
+    T --> L[Labeled fibers]
+```
+
+### Neural fields
+
+A binary foreground mask cannot separate fibers that touch, since they form a single connected component. Instead, two networks predict continuous fields:
+
+- **Centerline potential** $I(x) \in [-1, 1]$. It is close to 1 on fiber centerlines, decays with distance from the centerline following a Gaussian profile, and becomes negative where two fibers touch. The negative values at contacts make adjacent fibers separable.
+- **Orientation field** $O(x)$. A unit vector tangent to the fiber at every foreground voxel. Fibers are not directed, so $O$ and $-O$ describe the same direction.
+
+The intensity network is trained with a foreground-weighted mean squared error combined with a soft Dice loss. The orientation network is trained with a sign-invariant cosine loss, $1 - |u \cdot v|$, weighted by the target potential.
+
+Inference uses overlapping 64³ windows (stride 32) blended with Gaussian weights. Intermediate results are accumulated in memory-mapped files on disk, so volumes larger than the available RAM can be processed.
+
+### Topology optimization
+
+The two fields are converted into individual fibers in the following steps:
+
+| Step | Operation |
+| :--- | :--- |
+| 1. Skeletonization | Threshold the smoothed potential (default 0.28) and thin it to one-voxel-wide centerlines. |
+| 2. Border cut | Remove a margin (default 32 voxels) where predictions are less reliable. |
+| 3. Junction severing | Cut short bridges between two fibers (see below). |
+| 4. Fragment graph | Split the skeleton into unbranched fragments and estimate the direction at each end. |
+| 5. Gap candidates | Search for fragment ends that could be connected across a gap (up to 24 voxels). |
+| 6. Global matching | Select the set of connections with the lowest total cost. |
+| 7. Length filter | Remove fibers shorter than `--min-fiber-length` (default 5 voxels). |
+| 8. Label diffusion | Assign every foreground voxel to the nearest labeled centerline. |
+
+**Junction severing.** When two fibers touch, skeletonization typically produces two branch points joined by a short transverse segment, an "H" shape. A branch is removed if it is short (at most 14 voxels) and approximately perpendicular to the fibers it connects:
+
+```math
+1 - \lvert \mathbf{d}_{\text{branch}} \cdot \mathbf{O}_{\text{fiber}} \rvert > 0.5
+```
+
+where $\mathbf{d}_{\text{branch}}$ is the unit direction of the branch.
+
+**Endpoint directions.** The orientation at the very end of a fragment is often distorted. The direction used for matching is therefore averaged over several voxels inside the fragment.
+
+**Global matching.** Each candidate connection $b$ between two fragment ends A and B receives a cost based on the gap length and on the alignment of their directions:
+
+```math
+c(b) = w_g \, d_{\text{gap}}(b) + w_\theta \arccos \lvert \mathbf{O}_A \cdot \mathbf{O}_B \rvert + P(b)
+```
+
+where $P(b)$ penalizes connections that are not supported by the orientation field along the gap. The optimizer selects connections that minimize the total cost under two constraints: each fragment end connects to at most one other end (fibers do not branch), and the resulting graph contains no cycles.
+
+**Label diffusion.** Labels are propagated from the centerlines to the full fiber volume, restricted to the foreground. Connected components containing a single fiber are labeled directly; components containing several touching fibers are split with a local watershed.
+
+### Training data augmentation
+
+Synthetic volumes provide exact ground truth but do not look like real data. To reduce this gap, real fibers extracted from curated patches are deformed along synthetic fiber paths and inserted into the training volumes. The paths are additionally perturbed by random displacements, small oscillations, flips and rotations. The target fields for these augmented volumes are computed from the known paths.
+
+---
+
+## Command-Line Reference
+
+### `run_end_to_end.py`
+
+| Option | Default | Description |
 | :--- | :--- | :--- |
-| `instance_volume.tif` | `uint16` Compressed TIFF | **Default export**: 3D instance volume ready for **ImageJ / Fiji**, **napari**, **Dragonfly**, and **3D Slicer**. Supports streaming BigTIFF (>1 GB) with 0 GB RAM overhead. |
-| `instance_skeleton.tif` | `uint16` Compressed TIFF | **Default export**: 3D labeled centerline skeleton where each voxel value equals its fiber instance ID. |
-| `fiber_length_histogram.png` | `.png` Distribution Plot | **Default export**: Histogram of resolved continuous fiber lengths. |
-| `instance_volume.npy` | `int32` Memory-Mapped NPY | *(Optional with `--export-npy`)* Fast zero-copy memory-mapped array for downstream Python scientific processing. |
-| `instance_skeleton.npy` | `int32` Memory-Mapped NPY | *(Optional with `--export-npy`)* Memory-mapped centerline array. |
+| `--input` | first file in `data/fibers_to_segment/` | Input volume (`.tif`, `.tiff`, `.npy`) |
+| `--out` | `outputs/fiber_resolution_final` | Output directory |
+| `--intensity-ckpt` | `checkpoints/best_intensity_unet.pth` | Intensity network checkpoint |
+| `--orientation-ckpt` | `checkpoints/best_orientation_unet.pth` | Orientation network checkpoint |
+| `--patch-size` | `64` | Inference window size (voxels) |
+| `--stride` | `32` | Inference window stride (voxels) |
+| `--batch-size` | `4` | Inference batch size |
+| `--chunk-size` | `32` | Number of slices written to disk at once |
+| `--cut-border` | `32` | Border margin removed before optimization (voxels) |
+| `--min-fiber-length` | `5` | Minimum fiber length (voxels) |
+| `--export-gad` | off | Write a GeoDict `.gad` model |
+| `--gad-voxel-size` | `1e-06` | Voxel size in meters for the `.gad` export |
+| `--export-npy` | off | Also write `.npy` arrays |
+
+### `inference/run_inference.py`
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `--input` | first file in `data/fibers_to_segment/` | Input volume |
+| `--output-prefix` | `outputs/fiber` | Prefix of the output files |
+| `--mode` | `both` | `both`, `intensity` or `orientation` |
+| `--intensity-only` / `--orientation-only` | off | Run a single network |
+| `--intensity-ckpt`, `--orientation-ckpt` | `checkpoints/best_*.pth` | Checkpoints |
+| `--patch-size`, `--stride`, `--batch-size` | `64`, `32`, `4` | Sliding-window settings |
+| `--base-channels` | `32` | Network width (must match the checkpoint) |
+| `--chunk-size` | `32` | Number of slices written to disk at once |
+| `--export-npy` | off | Also write `float32` `.npy` fields |
+
+### `inference/run_topology_optimization.py`
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `--volume` | auto-detected | Raw or binary input volume |
+| `--intensity` | auto-detected | Centerline potential (`.tif` or `.npy`) |
+| `--orientation` | auto-detected | Orientation field (`.tif` or `.npy`) |
+| `--out` | `outputs/topology_resolved` | Output directory |
+| `--mode` | `direct` | `direct` (whole volume) or `chunked` |
+| `--chunk-size`, `--overlap` | `512`, `256` | Block size and overlap in chunked mode |
+| `--core-threshold` | `0.28` | Potential threshold for skeletonization |
+| `--sigma-prefilter` | `0.60` | Gaussian smoothing before skeletonization |
+| `--cut-border` | `32` | Border margin (voxels) |
+| `--border-mode` | `crop` | `crop` (reduce volume size) or `zero` (keep size) |
+| `--min-fiber-length` | `5` | Minimum fiber length (voxels) |
+| `--gad` | none | Ground-truth `.gad` file for evaluation |
+| `--export-gad`, `--gad-voxel-size` | off, `1e-06` | GeoDict export |
+| `--export-npy` | off | Also write `.npy` arrays |
+
+### `topology_optimizer/clean_border_artifacts.py`
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `--input` / `--vol` | required | Instance volume file or result directory |
+| `--skel` | none | Instance skeleton file |
+| `--out` | derived from input | Output directory |
+| `--margin` | `32` | Margin removed from each face (voxels) |
+| `--min-size` | `1` | Minimum size of remaining fragments (voxels) |
+| `--raw-vol`, `--intensity` | none | Optional volumes for preview images |
+| `--no-previews` | off | Do not generate preview images |
+| `--export-npy` | off | Also write `.npy` arrays |
+
+### `prepare_datasets.py`
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `--raw-dir` | `data/synthetic/raw` | Synthetic `.tif` + `.gad` pairs |
+| `--train-dir` | `data/synthetic/precomputed/train` | Output for training data |
+| `--test-dir` | `data/synthetic/precomputed/test` | Output for test data |
+| `--test-split` | `0.10` | Fraction of models used for testing |
+| `--overwrite` | off | Recompute existing targets |
+
+### `training/train_both.py`
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `--mode` | `both` | `both`, `intensity` or `orientation` |
+| `--epochs` | `50` | Epochs per network |
+| `--batch-size` | `4` | Batch size |
+| `--grad-accum-steps` | `1` | Gradient accumulation steps |
+| `--patch-size` | `64` | Training patch size (voxels) |
+| `--samples-per-epoch` | `200` | Patches per epoch |
+| `--base-channels` | `32` | Network width |
+| `--lr` | `5e-4` | Learning rate |
+| `--pretrained` | off | Start from the checkpoints in `checkpoints/` |
+| `--pretrained-intensity`, `--pretrained-orientation` | none | Start from specific checkpoints |
+| `--real-data-dir` | `data/curated` | Curated real data |
+| `--real-stamp-prob` | `0.25` | Probability of inserting real fibers into a synthetic patch |
+| `--real-repeat` | `3` | Weight of curated patches relative to synthetic data |
+| `--real-only` | off | Train on curated patches only |
+| `--train-on-all-data` | off | Use all curated patches for training (no validation split) |
+| `--no-morph` | off | Disable fiber deformation augmentation |
+
+### `scripts/extract_individual_fibers.py`
+
+| Option | Default | Description |
+| :--- | :--- | :--- |
+| `--list` | off | List curated patches and their extraction status |
+| `--patch ID` / `--patches ID ...` | none | Extract fibers from one or several patches |
+| `--all` | off | Extract fibers from all patches |
+| `--remove ID` | none | Remove the extracted fibers of a patch |
+| `--clear` | off | Remove all extracted fibers |
+| `--padding` | `2` | Margin around each extracted fiber (voxels) |
+| `--curated-dir` | `data/curated/patches` | Curated patches directory |
+| `--indiv-dir` | `data/curated/individual_fibers` | Output directory |
+| `--library-cache` | `data/curated/fiber_library.pkl` | Fiber library file |
+| `--no-sync-library` | off | Do not update the fiber library |
 
 ---
 
-## 📁 Directory Structure
+## Project Structure
 
 ```
-fiber_resolution_pipeline/
-├── README.md                           # Master documentation
-├── requirements.txt                    # Python package dependencies
-├── prepare_datasets.py                 # Precomputes memory-mapped NPY datasets & signed targets
-├── run_end_to_end.py                   # 1-Click Master Runner (Inference + Optimization)
+fiber_segmentation_pipeline/
+├── run_end_to_end.py          Full pipeline: inference and topology optimization
+├── prepare_datasets.py        Target computation for synthetic training data
+├── requirements.txt
 │
-├── data/                               # Unified 3-Bucket Data Architecture
-│   ├── synthetic/                      # Synthetic data bucket
-│   │   ├── raw/                        # Drop raw synthetic pairs (AJ_model_*.tif + AJ_model_*.gad; e.g. from matthiasne/Altendorf-Jeulin-Model)
-│   │   └── precomputed/                # Memory-mapped NPY fields generated by prepare_datasets.py
-│   │       ├── train/                  # 90% training split (models 1..8)
-│   │       └── test/                   # 10% test split (models 9..10; testing auto-skipped if empty)
-│   ├── fibers_to_segment/              # Drop microscopy / tomography volumes to segment (*.tif, *.npy)
-│   └── curated/                        # Ground truth curated via 3D Fiber Curator
-│       ├── patches/                    # 96³ curated patches (*_vol, *_int, *_ori)
-│       ├── individual_fibers/          # Auto-extracted biological donor fiber stamps
-│       └── fiber_library.pkl           # Cached donor fiber spline library
+├── core/                      Networks, losses, datasets, target generation, fiber deformation
+├── inference/                 Sliding-window inference and topology optimization entry points
+├── topology_optimizer/        Optimization steps, border cleanup, GeoDict export, evaluation
+├── training/                  Training scripts
+├── curation_tool/             Browser-based 3D curation tool
+├── scripts/                   Fiber extraction and maintenance scripts
+├── tests/                     Unit tests
 │
-├── checkpoints/                        # Trained specialist model checkpoints (*.pth)
-│   ├── best_intensity_unet.pth         # Intensity Specialist weights
-│   └── best_orientation_unet.pth       # Orientation Specialist weights
-│
-├── outputs/                            # Segmentation results & exported artifacts
-│   ├── instance_volume.tif             # 16-bit compressed TIFF instance stack (default)
-│   ├── instance_skeleton.tif           # 16-bit centerline skeleton TIFF (default)
-│   ├── fiber_length_histogram.png      # Length distribution histogram (default)
-│   ├── instance_volume.npy             # Memory-mapped int32 volume (optional, --export-npy)
-│   └── instance_skeleton.npy           # Memory-mapped centerline array (optional, --export-npy)
-│
-├── core/
-│   ├── models.py                       # IntensityUNet3D & OrientationUNet3D architectures
-│   ├── losses.py                       # Foreground-Weighted MSE, Dice & Cosine losses
-│   ├── dataset.py                      # OnTheFlyMorphedDataset, GADSplineBank & Full-Volume Sampling
-│   └── fiber_morpher.py                # Vectorized backward-warping & sub-voxel continuous projection
-│
-├── topology_optimizer/
-│   ├── cost_functions.py               # Modular fiber quality & bridging cost definitions
-│   ├── step1_sever_h_junctions.py      # Orientation-guided H-severing engine
-│   ├── step2_bridge_gaps.py            # Direction-durable multi-probe gap bridging
-│   ├── step3_build_fragment_graph.py   # Vectorized fragment graph & durable endpoints
-│   ├── step4_optimize_topology.py      # Min-cost priority matching with degree & cycle constraints
-│   ├── step5_diffuse_labels.py         # Connected-component bounded Voronoi diffusion & short fiber filtering (<5 vx)
-│   ├── evaluate_against_gt.py          # Ground-truth GAD evaluation metrics
-│   └── visualize_results.py            # Length distribution histogram and uint16 TIFF export
-│
-├── curation_tool/
-│   ├── app.py                          # Interactive WebGL Three.js 3D Fiber Curator application
-│   ├── engine.py                       # Geodesic lane-guided centerline routing engine with auto-centering
-│   └── test_engine.py                  # Curation engine validation tests
-│
-├── training/
-│   ├── train_intensity.py              # Trainer for Intensity Specialist
-│   ├── train_orientation.py            # Trainer for Orientation Specialist
-│   └── train_both.py                   # Master sequential/joint trainer
-│
-├── inference/
-│   ├── run_inference.py                # 3D Gaussian sliding-window inference + NPY export
-│   └── run_topology_optimization.py    # Standalone CLI for running topology optimizer
-│
-└── scripts/
-    ├── extract_individual_fibers.py    # Selective individual fiber extraction & library synchronization
-    └── recompute_morphed_examples.py   # Demonstration generation script
+├── checkpoints/               Trained weights (not tracked by git)
+├── outputs/                   Results (not tracked by git)
+└── data/                      Data (not tracked by git)
+    ├── fibers_to_segment/     Volumes to segment
+    ├── synthetic/
+    │   ├── raw/               Synthetic .tif + .gad pairs
+    │   └── precomputed/       Generated training and test targets
+    └── curated/
+        ├── patches/           Patches saved by the curation tool
+        ├── individual_fibers/ Extracted real fibers
+        └── fiber_library.pkl  Fiber library used for augmentation
 ```
 
 ---
 
-## 🤖 Disclosure & AI Assistance
+## Testing
 
-This codebase, neural field architectures, topology optimization algorithms, on-the-fly dynamic spline morphing engine, and interactive 3D WebGL Fiber Curator application were engineered and developed with the assistance of **Google Gemini** (DeepMind Antigravity AI coding assistant).
+```bash
+python -m unittest discover tests
+```
+
+---
+
+## License
+
+This project is released under the [MIT License](LICENSE).
+
+Parts of this codebase were developed with the assistance of AI coding tools (Google Gemini).
