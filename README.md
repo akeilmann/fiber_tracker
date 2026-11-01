@@ -230,8 +230,8 @@ python inference/run_topology_optimization.py --mode chunked --chunk-size 512 --
 #### Output Artifacts:
 - `instance_volume.tif`: 16-bit compressed TIFF stack of segmented 3D fiber instances.
 - `instance_skeleton.tif`: 16-bit compressed TIFF stack of labeled 1-voxel mathematical centerlines.
-- `instance_volume.npy` & `instance_skeleton.npy`: Memory-mapped int32 NumPy volumes for rapid downstream analysis.
 - `fiber_length_histogram.png`: Global fiber length distribution plot.
+- `instance_volume.npy` & `instance_skeleton.npy`: *(Optional, off by default)* Memory-mapped int32 NumPy volumes produced when `--export-npy` is specified.
 
 ---
 
@@ -253,7 +253,7 @@ python run_end_to_end.py
 - [Why H-Junctions Occur and How They Are Resolved](#why-h-junctions-occur-and-how-they-are-resolved)
 - [Border Margin Trimming & Boundary Hairpin Elimination (`--cut-border`)](#border-margin-trimming--boundary-hairpin-elimination---cut-border)
 - [Interactive 3D Fiber Curator Web App & Engine](#interactive-3d-fiber-curator-web-app--engine)
-- [Export Formats (Memory-Mapped NPY & 16-bit TIFF)](#export-formats-memory-mapped-npy--16-bit-tiff)
+- [Export Formats (16-bit TIFF & Optional NPY)](#export-formats-16-bit-tiff--optional-npy)
 - [Directory Structure](#directory-structure)
 - [Disclosure & AI Assistance](#disclosure--ai-assistance)
 
@@ -359,8 +359,8 @@ flowchart TD
     end
 
     subgraph OUTPUTS ["Export & Scientific Downstream"]
-        ST8 --> EXP_VOL["Instance Volume<br/>(uint16 .tif + int32 .npy)"]
-        ST8 --> EXP_SKEL["Labeled Centerlines<br/>(uint16 .tif + int32 .npy)"]
+        ST8 --> EXP_VOL["Instance Volume<br/>(uint16 .tif / optional .npy)"]
+        ST8 --> EXP_SKEL["Labeled Centerlines<br/>(uint16 .tif / optional .npy)"]
         ST8 --> EXP_DIAG["Length Distribution<br/>(fiber_length_histogram.png)"]
     end
 
@@ -477,17 +477,17 @@ flowchart LR
 
 ---
 
-## 💾 Export Formats (Memory-Mapped NPY & 16-bit TIFF)
+## 💾 Export Formats (16-bit TIFF & Optional NPY)
 
-The pipeline automatically exports all instance segmentation volumes and centerline skeletons in two complementary formats:
+To prevent excessive disk usage on large multi-gigavoxel datasets, the pipeline exports 16-bit compressed TIFF stacks by default. Uncompressed memory-mapped `.npy` volumes are voluminous and are disabled by default, but can be exported on demand using the `--export-npy` flag:
 
 | File | Format | Description |
 | :--- | :--- | :--- |
-| `instance_volume.tif` | `uint16` Compressed TIFF | 3D instance volume ready for **ImageJ / Fiji**, **napari**, **Dragonfly**, and **3D Slicer**. Supports streaming BigTIFF (>1 GB) with 0 GB RAM overhead. |
-| `instance_skeleton.tif` | `uint16` Compressed TIFF | 3D labeled centerline skeleton where each voxel value equals its fiber instance ID. |
-| `instance_volume.npy` | `int32` Memory-Mapped NPY | Fast zero-copy memory-mapped array for downstream Python scientific processing. |
-| `instance_skeleton.npy` | `int32` Memory-Mapped NPY | Memory-mapped centerline array. |
-| `fiber_length_histogram.png` | `.png` Distribution Plot | Histogram of resolved continuous fiber lengths. |
+| `instance_volume.tif` | `uint16` Compressed TIFF | **Default export**: 3D instance volume ready for **ImageJ / Fiji**, **napari**, **Dragonfly**, and **3D Slicer**. Supports streaming BigTIFF (>1 GB) with 0 GB RAM overhead. |
+| `instance_skeleton.tif` | `uint16` Compressed TIFF | **Default export**: 3D labeled centerline skeleton where each voxel value equals its fiber instance ID. |
+| `fiber_length_histogram.png` | `.png` Distribution Plot | **Default export**: Histogram of resolved continuous fiber lengths. |
+| `instance_volume.npy` | `int32` Memory-Mapped NPY | *(Optional with `--export-npy`)* Fast zero-copy memory-mapped array for downstream Python scientific processing. |
+| `instance_skeleton.npy` | `int32` Memory-Mapped NPY | *(Optional with `--export-npy`)* Memory-mapped centerline array. |
 
 ---
 
@@ -517,11 +517,11 @@ fiber_resolution_pipeline/
 │   └── best_orientation_unet.pth       # Orientation Specialist weights
 │
 ├── outputs/                            # Segmentation results & exported artifacts
-│   ├── instance_volume.tif             # 16-bit compressed TIFF instance stack
-│   ├── instance_skeleton.tif           # 16-bit centerline skeleton TIFF
-│   ├── instance_volume.npy             # Memory-mapped int32 volume
-│   ├── instance_skeleton.npy           # Memory-mapped centerline array
-│   └── fiber_length_histogram.png      # Length distribution histogram
+│   ├── instance_volume.tif             # 16-bit compressed TIFF instance stack (default)
+│   ├── instance_skeleton.tif           # 16-bit centerline skeleton TIFF (default)
+│   ├── fiber_length_histogram.png      # Length distribution histogram (default)
+│   ├── instance_volume.npy             # Memory-mapped int32 volume (optional, --export-npy)
+│   └── instance_skeleton.npy           # Memory-mapped centerline array (optional, --export-npy)
 │
 ├── core/
 │   ├── models.py                       # IntensityUNet3D & OrientationUNet3D architectures

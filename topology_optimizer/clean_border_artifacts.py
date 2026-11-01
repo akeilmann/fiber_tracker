@@ -22,6 +22,7 @@ import gc
 import time
 import argparse
 import numpy as np
+import tifffile
 from scipy.ndimage import label as nd_label, find_objects
 
 # Ensure parent directory is in path
@@ -40,6 +41,7 @@ def crop_and_separate_border_fibers(
     intensity_path: str | None = None,
     save_previews: bool = True,
     verbose: bool = True,
+    export_npy: bool = False,
     **kwargs,
 ) -> dict:
     """
@@ -69,7 +71,10 @@ def crop_and_separate_border_fibers(
     else:
         mz, my, mx = margin
 
-    in_vol = np.load(vol_path, mmap_mode='r')
+    if vol_path.lower().endswith('.npy'):
+        in_vol = np.load(vol_path, mmap_mode='r')
+    else:
+        in_vol = tifffile.imread(vol_path)
     D, H, W = in_vol.shape
 
     if D <= 2 * mz or H <= 2 * my or W <= 2 * mx:
@@ -91,7 +96,10 @@ def crop_and_separate_border_fibers(
     out_vol.flush()
 
     if skel_path and os.path.exists(skel_path):
-        in_skel = np.load(skel_path, mmap_mode='r')
+        if skel_path.lower().endswith('.npy'):
+            in_skel = np.load(skel_path, mmap_mode='r')
+        else:
+            in_skel = tifffile.imread(skel_path)
         out_skel = np.lib.format.open_memmap(out_skel_path, mode='w+', dtype=np.int32, shape=(out_D, out_H, out_W))
         out_skel[:] = in_skel[mz:D-mz, my:H-my, mx:W-mx]
         out_skel.flush()
@@ -207,6 +215,36 @@ def crop_and_separate_border_fibers(
     else:
         out_skel_tif_path = None
 
+    if hasattr(out_vol, '_mmap') and out_vol._mmap is not None:
+        try:
+            out_vol._mmap.close()
+        except Exception:
+            pass
+    if out_skel is not None and hasattr(out_skel, '_mmap') and out_skel._mmap is not None:
+        try:
+            out_skel._mmap.close()
+        except Exception:
+            pass
+
+    del in_vol, out_vol
+    if out_skel is not None:
+        del out_skel
+    gc.collect()
+
+    if not export_npy:
+        if os.path.exists(out_vol_path):
+            try:
+                os.remove(out_vol_path)
+            except Exception:
+                pass
+        if os.path.exists(out_skel_path):
+            try:
+                os.remove(out_skel_path)
+            except Exception:
+                pass
+        out_vol_path = None
+        out_skel_path = None
+
     metrics = {
         'initial_fibers': initial_fibers,
         'border_fibers_checked': len(border_labels),
@@ -219,15 +257,10 @@ def crop_and_separate_border_fibers(
         'total_runtime_sec': total_time,
         'out_instance_volume': out_vol_path,
         'out_instance_volume_tif': out_vol_tif_path,
-        'out_instance_skeleton': out_skel_path if out_skel is not None else None,
+        'out_instance_skeleton': out_skel_path,
         'out_instance_skeleton_tif': out_skel_tif_path,
     }
     save_metrics_text(metrics, os.path.join(out_dir, 'border_cleaning_report.txt'))
-
-    del in_vol, out_vol
-    if out_skel is not None:
-        del out_skel
-    gc.collect()
 
     return metrics
 
@@ -248,6 +281,8 @@ def main():
     parser.add_argument('--raw-vol', type=str, default=None, help="Optional raw volume .npy for diagnostic previews")
     parser.add_argument('--intensity', type=str, default=None, help="Optional intensity .npy for diagnostic previews")
     parser.add_argument('--no-previews', action='store_true', help="Disable slice previews")
+    parser.add_argument('--export-npy', action='store_true', default=False,
+                        help="Export instance volume and skeleton as .npy arrays (default: False)")
     args = parser.parse_args()
 
     vol_path = args.vol
@@ -256,8 +291,12 @@ def main():
 
     if args.input:
         if os.path.isdir(args.input):
-            candidate_vol = os.path.join(args.input, 'instance_volume.npy')
-            candidate_skel = os.path.join(args.input, 'instance_skeleton.npy')
+            candidate_vol = os.path.join(args.input, 'instance_volume.tif')
+            if not os.path.exists(candidate_vol):
+                candidate_vol = os.path.join(args.input, 'instance_volume.npy')
+            candidate_skel = os.path.join(args.input, 'instance_skeleton.tif')
+            if not os.path.exists(candidate_skel):
+                candidate_skel = os.path.join(args.input, 'instance_skeleton.npy')
             if os.path.exists(candidate_vol):
                 vol_path = candidate_vol
             if os.path.exists(candidate_skel):
@@ -285,6 +324,7 @@ def main():
         intensity_path=args.intensity,
         save_previews=not args.no_previews,
         verbose=True,
+        export_npy=args.export_npy,
     )
 
 

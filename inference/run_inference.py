@@ -193,7 +193,8 @@ def run_inference(
     base_channels=32,
     output_prefix='outputs/fiber',
     mode='both',
-    chunk_size=32
+    chunk_size=32,
+    export_npy=False
 ):
     if input_path is None:
         input_path = get_default_input_volume()
@@ -245,9 +246,12 @@ def run_inference(
     fg_density = float(np.mean(vol_float > 0))
     print(f"Volume shape: {vol_float.shape} (Foreground density: {fg_density:.4f})", flush=True)
 
-    # Save volume NPY early
-    out_npy_vol = f"{output_prefix}_volume.npy"
-    np.save(out_npy_vol, raw_binary)
+    # Save volume NPY only if requested (voluminous)
+    if export_npy:
+        out_npy_vol = f"{output_prefix}_volume.npy"
+        np.save(out_npy_vol, raw_binary)
+    else:
+        out_npy_vol = input_path
     del raw_binary
     gc.collect()
 
@@ -374,12 +378,15 @@ def run_inference(
     print(f"\n================================================================================")
     print(f" INFERENCE COMPLETE [{mode_label}]: Exports generated successfully!")
     if do_intensity:
-        print(f"  - Intensity Potential Field:   {out_npy_int}")
+        if export_npy:
+            print(f"  - Intensity Potential Field:   {out_npy_int}")
         print(f"  - Raw Probability TIFF:        {output_prefix}_raw_probability.tif")
     if do_orientation:
-        print(f"  - 3D Orientation Vector Field: {out_npy_ori}")
+        if export_npy:
+            print(f"  - 3D Orientation Vector Field: {out_npy_ori}")
         print(f"  - Orientation RGB TIFF:        {output_prefix}_orientation_rgb.tif")
-    print(f"  - Binary Volume:               {out_npy_vol}")
+    if export_npy and out_npy_vol and out_npy_vol.endswith('.npy'):
+        print(f"  - Binary Volume:               {out_npy_vol}")
     print(f"================================================================================\n")
 
     return (
@@ -407,6 +414,8 @@ if __name__ == '__main__':
     parser.add_argument('--base-channels', type=int, default=32, help="U-Net base channel capacity")
     parser.add_argument('--chunk-size', type=int, default=32, help="Slice chunk size for memory-safe streaming")
     parser.add_argument('--output-prefix', type=str, default='outputs/fiber', help="Output path prefix (default: outputs/fiber)")
+    parser.add_argument('--export-npy', action='store_true', default=False,
+                        help="Export intermediate volumes as uncompressed .npy arrays (default: False)")
     args = parser.parse_args()
 
     mode = args.mode
@@ -425,5 +434,6 @@ if __name__ == '__main__':
         base_channels=args.base_channels,
         output_prefix=args.output_prefix,
         mode=mode,
-        chunk_size=args.chunk_size
+        chunk_size=args.chunk_size,
+        export_npy=args.export_npy
     )

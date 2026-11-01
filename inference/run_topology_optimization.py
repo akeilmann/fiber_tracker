@@ -225,6 +225,9 @@ DEFAULT_PARAMS = dict(
     # GeoDict GAD export
     export_gad        = False,
     gad_voxel_size    = 1e-06,
+
+    # NPY export
+    export_npy        = False,
 )
 
 
@@ -489,17 +492,48 @@ def run_direct_topology_optimization(
     chain_lengths = list(counts_map.values())
     save_fiber_length_histogram(chain_lengths, None, os.path.join(out_dir, 'fiber_length_histogram.png'))
 
+    export_npy = bool(params.get('export_npy', False))
+    if not export_npy:
+        if hasattr(inst_vol, '_mmap') and inst_vol._mmap is not None:
+            try:
+                inst_vol._mmap.close()
+            except Exception:
+                pass
+        if hasattr(inst_skel, '_mmap') and inst_skel._mmap is not None:
+            try:
+                inst_skel._mmap.close()
+            except Exception:
+                pass
+        del inst_vol, inst_skel
+        if 's_sl' in locals():
+            del s_sl
+        gc.collect()
+        if os.path.exists(inst_vol_path):
+            try:
+                os.remove(inst_vol_path)
+            except Exception:
+                pass
+        if os.path.exists(inst_skel_path):
+            try:
+                os.remove(inst_skel_path)
+            except Exception:
+                pass
+        inst_vol_path = None
+        inst_skel_path = None
+
     total_runtime = float(time.time() - t_total)
     metrics = {
         'N_final_fibers': len(chain_lengths),
         'Mean_fiber_length_voxels': float(np.mean(chain_lengths)) if chain_lengths else 0,
         'Max_fiber_length_voxels': float(max(chain_lengths)) if chain_lengths else 0,
         'Total_pipeline_runtime_sec': total_runtime,
-        'instance_volume_npy': inst_vol_path,
         'instance_volume_tif': inst_vol_tif_path,
-        'instance_skeleton_npy': inst_skel_path,
         'instance_skeleton_tif': inst_skel_tif_path,
     }
+    if export_npy and inst_vol_path:
+        metrics['instance_volume_npy'] = inst_vol_path
+    if export_npy and inst_skel_path:
+        metrics['instance_skeleton_npy'] = inst_skel_path
     if inst_gad_path:
         metrics['instance_fibers_gad'] = inst_gad_path
 
@@ -508,9 +542,11 @@ def run_direct_topology_optimization(
     print(f"  - Final Continuous Fibers Resolved:  {len(chain_lengths)}")
     print(f"  - Mean Fiber Length:                 {metrics['Mean_fiber_length_voxels']:.1f} voxels")
     print(f"  - Max Fiber Length:                  {metrics['Max_fiber_length_voxels']:.1f} voxels")
-    print(f"  - Instance Volume Array (npy):       {inst_vol_path}")
+    if export_npy and inst_vol_path:
+        print(f"  - Instance Volume Array (npy):       {inst_vol_path}")
     print(f"  - Instance Volume TIFF (uint16):     {inst_vol_tif_path}")
-    print(f"  - Labeled Skeleton Array (npy):      {inst_skel_path}")
+    if export_npy and inst_skel_path:
+        print(f"  - Labeled Skeleton Array (npy):      {inst_skel_path}")
     print(f"  - Labeled Skeleton TIFF (uint16):    {inst_skel_tif_path}")
     if inst_gad_path:
         print(f"  - GeoDict GAD File (.gad):           {inst_gad_path}")
@@ -899,17 +935,46 @@ def run_chunked_topology_optimization(
 
     save_fiber_length_histogram(chain_lengths, None, os.path.join(out_dir, 'fiber_length_histogram.png'))
 
+    export_npy = bool(params.get('export_npy', False))
+    if not export_npy:
+        if hasattr(inst_vol, '_mmap') and inst_vol._mmap is not None:
+            try:
+                inst_vol._mmap.close()
+            except Exception:
+                pass
+        if hasattr(inst_skel, '_mmap') and inst_skel._mmap is not None:
+            try:
+                inst_skel._mmap.close()
+            except Exception:
+                pass
+        del inst_vol, inst_skel
+        gc.collect()
+        if os.path.exists(inst_vol_path):
+            try:
+                os.remove(inst_vol_path)
+            except Exception:
+                pass
+        if os.path.exists(inst_skel_path):
+            try:
+                os.remove(inst_skel_path)
+            except Exception:
+                pass
+        inst_vol_path = None
+        inst_skel_path = None
+
     total_runtime = float(time.time() - t_total)
     metrics = {
         'N_final_fibers': len(chain_lengths),
         'Mean_fiber_length_voxels': float(np.mean(chain_lengths)) if chain_lengths else 0,
         'Max_fiber_length_voxels': float(max(chain_lengths)) if chain_lengths else 0,
         'Total_pipeline_runtime_sec': total_runtime,
-        'instance_volume_npy': inst_vol_path,
         'instance_volume_tif': inst_vol_tif_path,
-        'instance_skeleton_npy': inst_skel_path,
         'instance_skeleton_tif': inst_skel_tif_path,
     }
+    if export_npy and inst_vol_path:
+        metrics['instance_volume_npy'] = inst_vol_path
+    if export_npy and inst_skel_path:
+        metrics['instance_skeleton_npy'] = inst_skel_path
     if inst_gad_path:
         metrics['instance_fibers_gad'] = inst_gad_path
 
@@ -918,9 +983,11 @@ def run_chunked_topology_optimization(
     print(f"  - Final Continuous Fibers Resolved:  {len(chain_lengths)}")
     print(f"  - Mean Fiber Length:                 {metrics['Mean_fiber_length_voxels']:.1f} voxels")
     print(f"  - Max Fiber Length:                  {metrics['Max_fiber_length_voxels']:.1f} voxels")
-    print(f"  - Instance Volume Array (npy):       {inst_vol_path}")
+    if export_npy and inst_vol_path:
+        print(f"  - Instance Volume Array (npy):       {inst_vol_path}")
     print(f"  - Instance Volume TIFF (uint16):     {inst_vol_tif_path}")
-    print(f"  - Labeled Skeleton Array (npy):      {inst_skel_path}")
+    if export_npy and inst_skel_path:
+        print(f"  - Labeled Skeleton Array (npy):      {inst_skel_path}")
     print(f"  - Labeled Skeleton TIFF (uint16):    {inst_skel_tif_path}")
     if inst_gad_path:
         print(f"  - GeoDict GAD File (.gad):           {inst_gad_path}")
@@ -1006,6 +1073,8 @@ if __name__ == '__main__':
                         help="Export resolved fibers to GeoDict .gad format (default: False, non-active)")
     parser.add_argument('--gad-voxel-size', type=float, default=1e-06,
                         help="Physical voxel size in meters for .gad export (default: 1e-06)")
+    parser.add_argument('--export-npy', action='store_true', default=False,
+                        help="Export resolved volumes and centerlines as .npy arrays (default: False)")
     args = parser.parse_args()
 
     params = DEFAULT_PARAMS.copy()
@@ -1017,6 +1086,7 @@ if __name__ == '__main__':
     params['min_chain_length'] = args.min_fiber_length
     params['export_gad'] = args.export_gad
     params['gad_voxel_size'] = args.gad_voxel_size
+    params['export_npy'] = args.export_npy
 
     run_topology_optimization(
         intensity_path=args.intensity,

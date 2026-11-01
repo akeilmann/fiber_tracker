@@ -43,6 +43,8 @@ def main():
                         help="Export resolved fibers to GeoDict .gad format (default: False, non-active)")
     parser.add_argument('--gad-voxel-size', type=float, default=1e-06,
                         help="Physical voxel size in meters for .gad export (default: 1e-06)")
+    parser.add_argument('--export-npy', action='store_true', default=False,
+                        help="Export resolved volumes and centerlines as .npy arrays (default: False)")
     args = parser.parse_args()
 
     t_start = time.time()
@@ -62,7 +64,8 @@ def main():
         stride=args.stride,
         batch_size=args.batch_size,
         output_prefix=temp_prefix,
-        chunk_size=args.chunk_size
+        chunk_size=args.chunk_size,
+        export_npy=args.export_npy,
     )
 
     # 2. Global Topology Optimization
@@ -72,6 +75,7 @@ def main():
     opt_params['min_chain_length'] = args.min_fiber_length
     opt_params['export_gad'] = args.export_gad
     opt_params['gad_voxel_size'] = args.gad_voxel_size
+    opt_params['export_npy'] = args.export_npy
 
     metrics = run_topology_optimization(
         intensity_path=int_path,
@@ -80,6 +84,15 @@ def main():
         out_dir=args.out,
         params=opt_params
     )
+
+    # Clean up intermediate neural field .npy files if export_npy is False
+    if not args.export_npy:
+        for p in (int_path, ori_path, vol_path):
+            if p and os.path.isfile(p) and p.endswith('.npy') and os.path.abspath(p).startswith(os.path.abspath(args.out)):
+                try:
+                    os.remove(p)
+                except Exception:
+                    pass
 
     print("=" * 90)
     print(f" ALL PIPELINE STAGES COMPLETED IN {time.time() - t_start:.2f}s!")
