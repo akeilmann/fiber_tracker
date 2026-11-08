@@ -3,6 +3,7 @@ import sys
 import tempfile
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 import time
+import math
 import numpy as np
 import torch
 from torch.utils.data import DataLoader
@@ -12,6 +13,7 @@ import tifffile
 
 from core.models import OrientationUNet3D, infer_base_channels_from_checkpoint
 from core.losses import OrientationLoss
+from core.schedulers import get_step_warmup_cosine_scheduler
 from core.dataset import Fiber3DPatchDataset, OnTheFlyMorphedDataset, collect_dataset_triplets, split_real_validation_triplets
 from inference.run_inference import predict_sliding_window
 
@@ -225,13 +227,15 @@ def train_orientation_model(
             print(f"Could not load pretrained weights from '{pretrained_path}': {e}. Training from scratch.", flush=True)
 
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=1e-4)
-    scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-5)
+    steps_per_epoch = max(1, int(math.ceil(len(train_loader) / grad_accum_steps))) if len(train_loader) > 0 else 1
+    total_steps = epochs * steps_per_epoch
+    scheduler = get_step_warmup_cosine_scheduler(optimizer, total_steps=total_steps, warmup_ratio=0.05, min_lr=1e-5)
     loss_fn = OrientationLoss(baseline_floor=0.10)
     scaler = torch.amp.GradScaler('cuda', enabled=(device.type == 'cuda'))
 
     best_val_angle = float('inf')
     best_test_angle = float('inf')
-    history = {'train_loss': [], 'train_angle': [], 'test_loss': [], 'test_angle': [], 'val_loss': [], 'val_angle': []}
+    history = {'train_loss': [], 'train_angle': [], 'test_loss': [], 'test_angle': [], 'val_loss': [], 'val_angle': [], 'lr': []}
 
     t0 = time.time()
     for epoch in range(1, epochs + 1):
@@ -255,14 +259,17 @@ def train_orientation_model(
                 scaler.step(optimizer)
                 scaler.update()
                 optimizer.zero_grad()
+                scheduler.step()
 
+            current_lr = optimizer.param_groups[0]['lr']
             running_loss += loss_dict['loss_total']
             running_angle += loss_dict['mean_angle_deg']
-            pbar.set_postfix({'Loss': f"{loss_dict['loss_total']:.4f}", 'Angle': f"{loss_dict['mean_angle_deg']:.1f} deg"})
+            pbar.set_postfix({'Loss': f"{loss_dict['loss_total']:.4f}", 'Angle': f"{loss_dict['mean_angle_deg']:.1f} deg", 'LR': f"{current_lr:.2e}"})
 
-        scheduler.step()
         train_loss = running_loss / len(train_loader)
         train_angle = running_angle / len(train_loader)
+        epoch_lr = optimizer.param_groups[0]['lr']
+        history['lr'].append(epoch_lr)
 
         if hasattr(train_dataset, 'refresh_epoch_pool'):
             train_dataset.refresh_epoch_pool()
@@ -289,7 +296,7 @@ def train_orientation_model(
             history['val_angle'].append(val_angle)
 
             print(
-                f"Epoch [{epoch:02d}/{epochs:02d}] | Train Loss: {train_loss:.4f} (Angle: {train_angle:.2f}°) "
+                f"Epoch [{epoch:02d}/{epochs:02d}] | Train Loss: {train_loss:.4f} (Angle: {train_angle:.2f}°) | LR: {epoch_lr:.2e} "
                 f"|| Val (Full Real Crops) Loss: {val_loss:.4f} (Angle: {val_angle:.2f}°)",
                 flush=True
             )
@@ -310,7 +317,7 @@ def train_orientation_model(
             history['train_loss'].append(train_loss)
             history['train_angle'].append(train_angle)
             print(
-                f"Epoch [{epoch:02d}/{epochs:02d}] | Train Loss: {train_loss:.4f} (Angle: {train_angle:.2f}°) | No validation split",
+                f"Epoch [{epoch:02d}/{epochs:02d}] | Train Loss: {train_loss:.4f} (Angle: {train_angle:.2f}°) | LR: {epoch_lr:.2e} | No validation split",
                 flush=True
             )
 
