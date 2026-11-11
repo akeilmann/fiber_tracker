@@ -1,6 +1,6 @@
-# Fiber Segmentation Pipeline
+# Fiber Tracker
 
-Instance segmentation of individual fibers in 3D microscopy and micro-CT volumes (collagen networks, fibrous composites, electrospun scaffolds).
+Fiber tracking of individual fibers in micro-CT volumes (so far only nonwoven scaffolds, more to come).
 
 The pipeline combines two 3D U-Nets, which predict a centerline potential field and a fiber orientation field, with a graph-based topology optimizer that separates touching and crossing fibers into continuous, individually labeled instances.
 
@@ -31,12 +31,6 @@ Requirements:
 
 - Python 3.10 or newer
 - An NVIDIA GPU with CUDA is strongly recommended (8 GB of VRAM or more). The pipeline also runs on CPU, but considerably slower.
-
-```bash
-git clone https://github.com/Kataevskii/fiber_segmentation_pipeline.git
-cd fiber_segmentation_pipeline
-pip install -r requirements.txt
-```
 
 For GPU support, install the PyTorch build that matches your CUDA version by following the instructions at [pytorch.org](https://pytorch.org/get-started/locally/) **before** running `pip install -r requirements.txt`.
 
@@ -141,7 +135,7 @@ data/synthetic/raw/AJ_model_02.tif
 data/synthetic/raw/AJ_model_02.gad
 ```
 
-Such volumes can be generated, for example, with the [Altendorf-Jeulin model generator](https://github.com/matthiasne/Altendorf-Jeulin-Model) or exported from GeoDict.
+Such volumes can be generated, for example, with the [Altendorf-Jeulin model](https://github.com/matthiasne/Altendorf-Jeulin-Model) or exported from GeoDict.
 
 ### Step 2: Precompute training targets
 
