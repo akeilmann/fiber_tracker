@@ -121,12 +121,12 @@ def sever_h_junctions(
 
     counts = branch_sizes.astype(np.float32)
     counts[0] = 1.0
-    branch_mean_ori = np.column_stack([
-        sum_oz / counts, sum_oy / counts, sum_ox / counts
+    branch_sum_ori = np.column_stack([
+        sum_oz, sum_oy, sum_ox
     ])  # (n_branches+1, 3)
-    norms = np.linalg.norm(branch_mean_ori, axis=1, keepdims=True)
+    norms = np.linalg.norm(branch_sum_ori, axis=1, keepdims=True)
     norms[norms < 1e-8] = 1.0
-    branch_mean_ori = branch_mean_ori / norms
+    branch_mean_ori = branch_sum_ori / norms
 
     # ------------------------------------------------------------------ #
     # Step 3: collect start/end coords per branch for rung_dir           #
@@ -221,9 +221,9 @@ def sever_h_junctions(
         rung_dir = rung_vec / rung_dist
 
         # 1. Orientation along the rung itself from predicted orientation field
-        oz_m = float(np.mean(ori_z[cz_s, cy_s, cx_s]))
-        oy_m = float(np.mean(ori_y[cz_s, cy_s, cx_s]))
-        ox_m = float(np.mean(ori_x[cz_s, cy_s, cx_s]))
+        oz_m = float(np.sum(ori_z[cz_s, cy_s, cx_s]))
+        oy_m = float(np.sum(ori_y[cz_s, cy_s, cx_s]))
+        ox_m = float(np.sum(ori_x[cz_s, cy_s, cx_s]))
         o_mean = np.array([oz_m, oy_m, ox_m], dtype=np.float32)
         o_norm = float(np.linalg.norm(o_mean))
         if o_norm > 1e-8:
