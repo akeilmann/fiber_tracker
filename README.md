@@ -499,3 +499,5 @@ Parts of this codebase were developed with the assistance of AI coding tools (Go
 [1] X. Huang, D. Wen, Y. Zhao, Q. Wang, W. Zhou, D. Deng, 2016. Skeleton-based tracing of curved fibers from 3D X-ray microtomographic imaging. Results in Physics, 6, 170–177. [doi: 10.1016/j.rinp.2016.03.008](https://doi.org/10.1016/j.rinp.2016.03.008)
 
 [2] A. Grießer, R. Westerteiger, E. Glatt, H. Hagen, A. Wiegmann, 2022. Identification and analysis of fibers in ultra-large micro-CT scans of nonwoven textiles using deep learning. The Journal of The Textile Institute, (11), 1647–1657. [doi: 10.1080/00405000.2022.2145429](https://doi.org/10.1080/00405000.2022.2145429)
+
+[3] Jeppesen, N., et al., 2021. Quantifying effects of manufacturing methods on fiber orientation in unidirectional composites using structure tensor analysis. Composites Part A: Applied Science and Manufacturing 149: 106541.
