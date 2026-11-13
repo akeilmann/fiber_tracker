@@ -240,7 +240,9 @@ def run_direct_topology_optimization(
     params: dict = None,
     verbose: bool = True,
 ):
-    """Direct whole-volume topology optimization with global degree-1 linear assignment matching."""
+    """TODO DOC
+    Direct whole-volume topology optimization with global degree-1 linear assignment matching."""
+
     if params is None:
         params = DEFAULT_PARAMS.copy()
 
@@ -254,85 +256,20 @@ def run_direct_topology_optimization(
     # 1. Load memory-mapped input volumes (0 GB resident RAM for large .npy)
     intensity = load_neural_field_array(intensity_path, mmap_mode='r')
     orientation = load_neural_field_array(orientation_path, mmap_mode='r')
+    if orientation.shape[0] == 3:  # (3,D,H,W) -> (D,H,W,3), components in ZYX order
+        orientation = np.moveaxis(orientation, 0, -1)
     volume = load_volume_array(volume_path, mmap_mode='r')
-
-    D, H, W = intensity.shape
-    print(f"  Volume dimensions: {D} x {H} x {W}", flush=True)
-    print(f"  Intensity range: [{float(intensity.min()):.3f}, {float(intensity.max()):.3f}]", flush=True)
-
-    if orientation.shape == (D, H, W, 3):
-        ori_z = orientation[:, :, :, 0]
-        ori_y = orientation[:, :, :, 1]
-        ori_x = orientation[:, :, :, 2]
-    elif orientation.shape == (3, D, H, W):
-        ori_z = orientation[0]
-        ori_y = orientation[1]
-        ori_x = orientation[2]
-    else:
-        raise ValueError(f"Unexpected orientation shape: {orientation.shape}")
-
     # -------------------------------------------------------------------------
     # STAGE 1: Medial Axis Thinning & Spur Pruning
+    # smoothing and thinning; sigma = 0.6, I = 0.28 TODO why
     # -------------------------------------------------------------------------
-    print("\n" + "=" * 85, flush=True)
-    print(" STAGE 1: Global Potential Field Thinning & Spur Pruning", flush=True)
-    print("=" * 85, flush=True)
-    t1 = time.time()
-
-    if params.get('sigma_prefilter', 0.0) > 0:
-        print("  Applying Gaussian pre-filter...", flush=True)
-        smooth_int = gaussian_filter(intensity.astype(np.float32), sigma=params['sigma_prefilter'])
-        binary_core = smooth_int >= params['core_threshold']
-        del smooth_int
-        gc.collect()
-    else:
-        binary_core = intensity >= params['core_threshold']
-
-    print(f"  Skeletonizing binary core ({int(binary_core.sum())} voxels)...", flush=True)
-    skel = skeletonize(binary_core)
-    del binary_core
-    gc.collect()
-
-    if params.get('spur_pruning_steps', 0) > 0:
-        struct26 = np.ones((3, 3, 3), dtype=np.uint8)
-        print(f"  Pruning spurs ({params['spur_pruning_steps']} iterations)...", flush=True)
-        for _ in range(params['spur_pruning_steps']):
-            skel_u8 = skel.astype(np.uint8)
-            convolve(skel_u8, struct26, output=skel_u8, mode='constant', cval=0)
-            endpoints = skel & (skel_u8 == 2)
-            del skel_u8
-            if not endpoints.any():
-                del endpoints
-                break
-            skel[endpoints] = False
-            del endpoints
-            gc.collect()
-
-    n_skel_vox = int(skel.sum())
-    print(f"  Skeleton extracted: {n_skel_vox} voxels in {time.time()-t1:.1f}s", flush=True)
-
-    if n_skel_vox == 0:
-        print("  [Warning] Skeleton is empty. Check threshold parameters.", flush=True)
-        return {'N_final_fibers': 0, 'Total_pipeline_runtime_sec': float(time.time() - t_total)}
-
-    # Border margin cut (Option 1): Cuts border margin from full skeleton & volumes before
-    # graph construction to cleanly sever edge boundary merger loops and prevent hairpins.
-    cut_b = params.get('cut_border', 0)
-    if cut_b > 0:
-        mz = my = mx = cut_b
-        out_D = D - 2 * mz
-        out_H = H - 2 * my
-        out_W = W - 2 * mx
-        print(f"\n  Cutting border margin ({cut_b} px) from skeleton & volumes before optimization: ({D}, {H}, {W}) -> ({out_D}, {out_H}, {out_W})", flush=True)
-        skel = skel[mz:D-mz, my:H-my, mx:W-mx]
-        intensity = intensity[mz:D-mz, my:H-my, mx:W-mx]
-        volume = volume[mz:D-mz, my:H-my, mx:W-mx]
-        ori_z = ori_z[mz:D-mz, my:H-my, mx:W-mx]
-        ori_y = ori_y[mz:D-mz, my:H-my, mx:W-mx]
-        ori_x = ori_x[mz:D-mz, my:H-my, mx:W-mx]
-        D, H, W = out_D, out_H, out_W
-        n_skel_vox = int(skel.sum())
-        print(f"  Cropped skeleton: {n_skel_vox} voxels retained in clean inner domain", flush=True)
+    # TODO remove options for boundary treatment
+    skel = extract_skeleton(intensity, params['sigma_prefilter'], params['core_threshold']) # Reference: Lee, Kashyap & Chu (1994) - TODO verify reference
+    if not skel.any():
+        raise ValueError('Empty skeleton: core_threshold too high for this potential field?')
+    skel, intensity, volume, orientation = crop_border([skel, intensity, volume, orientation], params['cut_border'])
+    D, H, W = skel.shape
+    ori_z, ori_y, ori_x = orientation[..., 0], orientation[..., 1], orientation[..., 2]
 
     # -------------------------------------------------------------------------
     # STAGE 2: Orientation-Guided Transverse H-Severing
@@ -553,6 +490,28 @@ def run_direct_topology_optimization(
     print("=" * 85 + "\n", flush=True)
 
     return metrics
+
+def extract_skeleton(intensity, sigma=0.6, threshold=0.28):
+    """One-voxel-wide centerline skeleton from the predicted centerline potential.
+
+    The network regresses I(x) = exp(-d(x)^2 / 2), with d the distance (voxels) to the
+    nearest fiber centerline (core/gt_generator.py), i.e. a distance-based centerline
+    target as in Sironi et al. (2014). We
+      1. smooth I with a Gaussian (std `sigma` voxels) to suppress voxel-level noise,
+      2. keep the core I >= threshold, a tube of radius sqrt(-2 ln threshold) ~ 1.6 voxels
+         around each predicted centerline (smoothing lowers the peak to ~0.75 but leaves
+         this radius almost unchanged),
+      3. thin the core to curves with the 3D thinning of Lee, Kashyap & Chu (1994),
+         as implemented in skimage.morphology.skeletonize.
+    """
+    core = gaussian_filter(np.asarray(intensity, np.float32), sigma) >= threshold
+    return skeletonize(core)
+
+
+def crop_border(arrays, b):
+    """Drops `b` voxels on every side (after skeletonization, so thinning sees the full volume)."""
+    inner = (slice(b, -b if b else None),) * 3
+    return [a[inner] for a in arrays]
 
 
 def run_chunked_topology_optimization(
