@@ -19,8 +19,6 @@ try:
 except ImportError as e:  # e.g. the structure-tensor package is not installed
     _IMPORT_ERROR = e
 
-#from topology_optimizer.step1_sever_h_junctions import _nematic_mean_per_label
-
 
 def make_fiber_volume(direction, size=48, radius=3.0, noise=0.0, seed=0):
     """Single straight fiber through the volume centre. Axes (Z, Y, X), values in [0, 1]."""
@@ -95,35 +93,6 @@ class TestStructureTensorOrientation(unittest.TestCase):
         # Only signs change, never directions
         np.testing.assert_allclose(np.abs(out), np.abs(v))
 
-
-#class TestNematicMean(unittest.TestCase):
-#    """The step-1 fix: averaging must not depend on the sign of individual vectors."""
-
-#    def test_random_sign_flips_do_not_change_mean(self):
-#        rng = np.random.default_rng(2)
-#        true_dirs = np.array([[0.0, 0.0, 1.0], [0.6, 0.8, 0.0], [0.3, -0.4, 0.866]])
-#        labels = np.repeat(np.arange(3), 50)
-#        v = true_dirs[labels] + rng.normal(0.0, 0.05, (150, 3))
-#        v *= rng.choice([-1.0, 1.0], size=(150, 1))  # random signs, like a structure tensor
-
- #       mean = _nematic_mean_per_label(labels, v[:, 0], v[:, 1], v[:, 2], 3)
-
-#        for k, d in enumerate(true_dirs):
-#            d = d / np.linalg.norm(d)
-#            self.assertGreater(abs(float(mean[k] @ d)), 0.99, f"label {k}")
-#        np.testing.assert_allclose(np.linalg.norm(mean, axis=1), 1.0, atol=1e-5)
-
-#    def test_plain_mean_would_fail(self):
-#        """Documents why the fix exists: v and -v cancel in an arithmetic mean."""
-#        v = np.array([[0.0, 0.0, 1.0], [0.0, 0.0, -1.0]] * 10)
-#        self.assertLess(np.linalg.norm(v.mean(axis=0)), 1e-8)
-#        mean = _nematic_mean_per_label(np.zeros(len(v), dtype=np.int64), v[:, 0], v[:, 1], v[:, 2], 1)
-#        self.assertAlmostEqual(abs(float(mean[0, 2])), 1.0, places=5)
-
-#    def test_empty_label_gets_fallback(self):
-#        labels = np.array([1, 1])  # label 0 has no vectors
-#        mean = _nematic_mean_per_label(labels, np.zeros(2), np.zeros(2), np.ones(2), 2)
-#        np.testing.assert_allclose(mean[0], [1.0, 0.0, 0.0])
 
 
 if __name__ == '__main__':
