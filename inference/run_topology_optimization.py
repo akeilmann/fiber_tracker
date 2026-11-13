@@ -262,7 +262,6 @@ def run_direct_topology_optimization(
     # STAGE 1: Medial Axis Thinning & Spur Pruning
     # smoothing and thinning; sigma = 0.6, I = 0.28 TODO why
     # -------------------------------------------------------------------------
-    # TODO remove options for boundary treatment
     skel = extract_skeleton(intensity, params['sigma_prefilter'], params['core_threshold']) # Reference: Lee, Kashyap & Chu (1994) - TODO verify reference
     if not skel.any():
         raise ValueError('Empty skeleton: core_threshold too high for this potential field?')
