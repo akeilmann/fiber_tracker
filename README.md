@@ -22,6 +22,7 @@ The pipeline combines two 3D U-Nets, which predict a centerline potential field 
 9. [Project Structure](#project-structure)
 10. [Testing](#testing)
 11. [License](#license)
+12. [References](#references)
 
 ---
 
@@ -493,3 +494,8 @@ python -m unittest discover tests
 This project is released under the [MIT License](LICENSE).
 
 Parts of this codebase were developed with the assistance of AI coding tools (Google Gemini).
+
+## References
+[1] X. Huang, D. Wen, Y. Zhao, Q. Wang, W. Zhou, D. Deng, 2016. Skeleton-based tracing of curved fibers from 3D X-ray microtomographic imaging. Results in Physics, 6, 170–177. [doi: 10.1016/j.rinp.2016.03.008](https://doi.org/10.1016/j.rinp.2016.03.008)
+
+[2] A. Grießer, R. Westerteiger, E. Glatt, H. Hagen, A. Wiegmann, 2022. Identification and analysis of fibers in ultra-large micro-CT scans of nonwoven textiles using deep learning. The Journal of The Textile Institute, (11), 1647–1657. [doi: 10.1080/00405000.2022.2145429](https://doi.org/10.1080/00405000.2022.2145429)
