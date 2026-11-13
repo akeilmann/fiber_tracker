@@ -220,7 +220,6 @@ DEFAULT_PARAMS = dict(
 
     # Border cleaning
     cut_border        = 32,
-    border_mode       = 'crop',
 
     # GeoDict GAD export
     export_gad        = False,
@@ -1040,7 +1039,6 @@ if __name__ == '__main__':
     params['sigma_prefilter'] = args.sigma_prefilter
     params['core_threshold'] = args.core_threshold
     params['cut_border'] = args.cut_border
-    params['border_mode'] = args.border_mode
     params['min_fiber_length'] = args.min_fiber_length
     params['min_chain_length'] = args.min_fiber_length
     params['export_gad'] = args.export_gad
