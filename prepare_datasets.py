@@ -43,6 +43,8 @@ def find_raw_models(raw_dir='data/synthetic/raw'):
             })
 
     models.sort(key=lambda m: natural_sort_key(m['name']))
+    for i, m in enumerate(models, start=1):
+        m['idx'] = i
     return models
 
 

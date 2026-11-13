@@ -649,7 +649,7 @@ class GADSplineBank:
         if not os.path.exists(raw_dir):
             return
 
-        files = sorted([f for f in os.listdir(raw_dir) if f.startswith('AJ_model_') and f.endswith('.gad')])
+        files = sorted(f for f in os.listdir(raw_dir) if f.endswith('.gad'))
         for f in files:
             m_path = os.path.join(raw_dir, f)
             try:
@@ -685,6 +685,9 @@ class GADSplineBank:
                     self.models.append(curves)
             except Exception as e:
                 print(f"Warning: Failed to load GAD spline file '{m_path}': {e}", flush=True)
+
+        if not self.models:
+            raise RuntimeError(f"No usable .gad files found in '{raw_dir}'")
 
     def sample_crop_curves(self, patch_size=64, min_fibers=2):
         if not self.models:

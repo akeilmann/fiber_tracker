@@ -24,6 +24,7 @@ sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from inference.run_inference import run_inference, get_default_input_volume
 from inference.run_topology_optimization import run_topology_optimization, DEFAULT_PARAMS
+from orientation.structure_tensor import compute_structure_tensor_orientation
 
 
 def main():
@@ -45,6 +46,14 @@ def main():
                         help="Physical voxel size in meters for .gad export (default: 1e-06)")
     parser.add_argument('--export-npy', action='store_true', default=False,
                         help="Export resolved volumes and centerlines as .npy arrays (default: False)")
+    parser.add_argument('--orientation-method', choices=['unet', 'structure_tensor', 'precomputed'],
+                        default='structure_tensor')
+    parser.add_argument('--orientation-file', type=str, default=None,
+                        help="For 'precomputed': float32 .npy, (3,D,H,W), components (vz,vy,vx)")
+    parser.add_argument('--st-sigma', type=float, default=1.0)
+    parser.add_argument('--st-rho', type=float, default=6.0)
+    parser.add_argument('--spacing', type=float, nargs=3, default=[1.0, 1.0, 1.0],
+                        metavar=('DZ', 'DY', 'DX'))
     args = parser.parse_args()
 
     t_start = time.time()
@@ -54,6 +63,8 @@ def main():
     print("=" * 90)
     print(" EXECUTING END-TO-END FIBER RESOLUTION & TOPOLOGY OPTIMIZATION PIPELINE ")
     print("=" * 90)
+    mode = 'both' if args.orientation_method == 'unet' else 'intensity'
+    print(args.orientation_method)
 
     # 1. Neural Field Inference
     int_path, ori_path, vol_path = run_inference(
@@ -66,7 +77,21 @@ def main():
         output_prefix=temp_prefix,
         chunk_size=args.chunk_size,
         export_npy=args.export_npy,
+        mode=mode,
     )
+    if args.orientation_method == 'structure_tensor':
+        ori_path = f"{temp_prefix}_orientation_st.npy"
+        compute_structure_tensor_orientation(
+            args.input, ori_path,
+            sigma=args.st_sigma, rho=args.st_rho
+        )
+    elif args.orientation_method == 'precomputed':
+        if not args.orientation_file or not os.path.isfile(args.orientation_file):
+            raise FileNotFoundError("--orientation-method precomputed requires --orientation-file")
+        ori_path = args.orientation_file
+
+    if not ori_path or not os.path.isfile(ori_path):
+        raise FileNotFoundError(f"Orientation field not found: {ori_path}")
 
     # 2. Global Topology Optimization
     opt_params = DEFAULT_PARAMS.copy()
@@ -87,7 +112,8 @@ def main():
 
     # Clean up intermediate neural field .npy files if export_npy is False
     if not args.export_npy:
-        for p in (int_path, ori_path, vol_path):
+        cleanup = (int_path, vol_path) if args.orientation_method == 'precomputed' else (int_path, ori_path, vol_path)
+        for p in cleanup:
             if p and os.path.isfile(p) and p.endswith('.npy') and os.path.abspath(p).startswith(os.path.abspath(args.out)):
                 try:
                     os.remove(p)
