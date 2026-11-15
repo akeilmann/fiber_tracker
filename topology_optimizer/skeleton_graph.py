@@ -1,5 +1,8 @@
 # TODO make sure "rules" are correct - are they new?
 # TODO justify thresholds; max_rung_length Huang scales by fiber diameter?
+# TODO rename branch, fragment, segment into segment
+# TODO rename long_neighbors, trunk_oris, min_neighbor_length into trunk
+# TODO further renaming/making consistent
 
 
 import gc
@@ -9,8 +12,51 @@ from scipy.spatial import cKDTree
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 from collections import defaultdict
+from dataclasses import dataclass, field
+import time
+
 
 from topology_optimizer.orientation_utils import axial_mean
+
+@dataclass
+class FiberFragment:
+    """
+    A junction-free piece of the skeleton, i.e. a simple path of 26-connected voxels.
+
+    Which end is called head and which tail is arbitrary.  Both end directions
+    point outward, away from the fragment.
+
+    :param frag_id: int
+        fragment ID, starting at 1
+    :param coords: np.ndarray of int, shape (n, 3)
+        (z, y, x) coordinates of the fragment voxels in raster order
+    :param head_coord: np.ndarray of float, shape (3,)
+        coordinates of the first end voxel
+    :param tail_coord: np.ndarray of float, shape (3,)
+        coordinates of the second end voxel
+    :param head_ori: np.ndarray of float, shape (3,)
+        fiber direction at the head from the orientation field, unit length
+    :param tail_ori: np.ndarray of float, shape (3,)
+        fiber direction at the tail from the orientation field, unit length
+    :param head_tangent: np.ndarray of float, shape (3,)
+        unit vector from the anchor voxel to the head (geometry only)
+    :param tail_tangent: np.ndarray of float, shape (3,)
+        unit vector from the anchor voxel to the tail (geometry only)
+
+    The attribute *length* (int) is set to the number of voxels.
+    """
+    frag_id: int
+    coords: np.ndarray
+
+    head_coord:   np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float32))
+    tail_coord:   np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float32))
+    head_ori: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float32))
+    tail_ori: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float32))
+    head_tangent: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float32))
+    tail_tangent: np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float32))
+
+    def __post_init__(self):
+        self.length = len(self.coords)
 
 
 def classify_branch(voxels, n_junctions,
@@ -261,3 +307,164 @@ def sever_h_junctions(
               f"{int(clean_skel.sum())} ({removed} voxels removed).", flush=True)
 
     return clean_skel
+
+
+def end_voxels(coords, is_end):
+    """
+    Return the two end voxels of a fragment.
+
+    Every fragment voxel has at most two neighbors, so a fragment is a path
+    (exactly two end voxels), a single voxel (both ends coincide), or a
+    closed loop (no end voxels).  A loop has no natural ends; its first voxel
+    and the voxel farthest from it are returned.
+
+    :param coords: np.ndarray of int, shape (n, 3)
+        (z, y, x) coordinates of the fragment voxels
+    :param is_end: np.ndarray of bool, shape (n,)
+        True for voxels with exactly one neighbor within the fragment
+    :return: tuple[np.ndarray, np.ndarray]
+        coordinates of the head and the tail voxel
+    """
+    ends = coords[is_end]
+    if len(ends) == 2:
+        return ends[0], ends[1]
+    if len(coords) == 1:
+        return coords[0], coords[0]
+    far = np.argmax(((coords - coords[0]) ** 2).sum(1))      # closed loop: no natural ends
+    return coords[0], coords[far]
+
+
+def end_direction(coords, end, ori_z, ori_y, ori_x, offset=5, radius=2):
+    """
+    Estimate the fiber direction at one end of a fragment.
+
+    The estimate is taken around an anchor voxel *offset* voxels inside the
+    fragment (ranked by distance to the end), so that the junction or contact
+    at the end itself does not disturb it.  The orientation is the axial mean
+    of the orientation field in the (2 * radius + 1)^3 window around the
+    anchor; averaging over the whole fiber cross-section suppresses the noise
+    of single voxels.  It is signed to point outward, from the anchor through
+    the end.  If the window contains no orientation, the geometric tangent is
+    used instead.
+
+    :param coords: np.ndarray of int, shape (n, 3)
+        (z, y, x) coordinates of the fragment voxels
+    :param end: np.ndarray, shape (3,)
+        coordinates of the end voxel
+    :param ori_z: np.ndarray of float, shape (D, H, W)
+        z component of the unit orientation field
+    :param ori_y: np.ndarray of float, shape (D, H, W)
+        y component of the unit orientation field
+    :param ori_x: np.ndarray of float, shape (D, H, W)
+        x component of the unit orientation field
+    :param offset: int, default 5
+        distance rank of the anchor voxel from the end
+    :param radius: int, default 2
+        half edge length of the averaging window in voxels
+    :return: tuple[np.ndarray, np.ndarray]
+        orientation and tangent, both float32 unit vectors of shape (3,)
+        pointing outward; the tangent is the unit vector from the anchor to
+        the end (geometry only), or the orientation if the two coincide
+    """
+    anchor = coords[np.argsort(((coords - end) ** 2).sum(1))[min(offset, len(coords) - 1)]]
+    win = tuple(slice(max(a - radius, 0), a + radius + 1) for a in anchor)   # slices clip at the far edge
+    ori, _ = axial_mean(np.column_stack([o[win].ravel() for o in (ori_z, ori_y, ori_x)]))
+    out = (end - anchor).astype(np.float64)
+    tangent = out / np.linalg.norm(out) if np.linalg.norm(out) > 1e-4 else None
+    if ori is None:                       # no predicted orientation around the anchor
+        ori = tangent if tangent is not None else np.array([1.0, 0.0, 0.0])
+    if ori @ out < 0:
+        ori = -ori
+    return ori.astype(np.float32), (ori if tangent is None else tangent).astype(np.float32)
+
+
+def build_fragment_graph(
+    skeleton: np.ndarray,
+    ori_z: np.ndarray,
+    ori_y: np.ndarray,
+    ori_x: np.ndarray,
+    min_fragment_length: int = 1,
+    endpoint_avg_k: int = 5,
+    verbose: bool = True,
+    return_seg_labels: bool = False,
+) -> tuple[list[FiberFragment], np.ndarray | None]:
+    """
+    Split a skeleton into fragments and compute their ends and end directions.
+
+    Junction voxels (more than two 26-neighbors, as in *sever_h_junctions*
+    and Huang et al. (2016)) are removed; each remaining 26-connected
+    component is a fragment.  Its end voxels are the voxels with exactly one
+    neighbor (*end_voxels*), and the fiber direction at each end is estimated
+    by *end_direction*.  Junction voxels belong to no fragment, so every
+    junction leaves a gap of one to a few voxels that the linking step has to
+    bridge.
+
+    :param skeleton: np.ndarray of bool, shape (D, H, W)
+        skeleton after H-junction severing
+    :param ori_z: np.ndarray of float, shape (D, H, W)
+        z component of the unit orientation field
+    :param ori_y: np.ndarray of float, shape (D, H, W)
+        y component of the unit orientation field
+    :param ori_x: np.ndarray of float, shape (D, H, W)
+        x component of the unit orientation field
+    :param min_fragment_length: int, default 1
+        currently has no effect: all fragments are kept (only printed)
+    :param endpoint_avg_k: int, default 5
+        distance rank of the anchor voxel used by *end_direction*
+        (its *offset*), i.e. how far inside the fragment the end direction
+        is measured
+    :param verbose: bool, default True
+        whether to print the number and lengths of the fragments
+    :param return_seg_labels: bool, default False
+        currently has no effect: no label map is created
+    :return: tuple[list[FiberFragment], None]
+        the fragments, with IDs 1, 2, ...; the second element is always None
+    """
+    t0 = time.time()
+    D, H, W = skeleton.shape
+
+    # Step 1: remove junction voxels, label connected components (see sever_h_junctions)
+    NBRS = np.ones((3, 3, 3), np.uint8)
+    NBRS[1, 1, 1] = 0  # the 26 neighbors, not the voxel itself
+    S26 = np.ones((3, 3, 3), bool)  # 26-connectivity for labeling
+    non_junc = skeleton & (convolve(skeleton.astype(np.uint8), NBRS, mode='constant') < 3)
+    labels, _ = nd_label(non_junc, S26)
+
+    # find endpoints per segment
+    is_end = non_junc & (convolve(non_junc.astype(np.uint8), NBRS, mode='constant') == 1)
+
+    # collect non-zero voxel coords & filter by length
+    pts = np.argwhere(labels)
+    ids, ends = labels[tuple(pts.T)], is_end[tuple(pts.T)]
+    del labels, is_end, non_junc  # the volume-sized arrays end here
+    order = np.argsort(ids, kind='stable')  # stable: raster order within a fragment
+    pts, ids, ends = pts[order], ids[order], ends[order]
+    cut = np.flatnonzero(np.diff(ids)) + 1
+
+    # build FiberFragment objects
+    if return_seg_labels:
+        seg_labels = np.zeros((D, H, W), dtype=np.int32)
+    else:
+        seg_labels = None
+
+    fragments: list[FiberFragment] = []
+    if len(pts) == 0:
+        return [], None
+    for fragment_id, (p, e) in enumerate(zip(np.split(pts, cut), np.split(ends, cut)), start=1):
+        head, tail = end_voxels(p, e)
+        head_ori, head_tangent = end_direction(p, head, ori_z, ori_y, ori_x, endpoint_avg_k)
+        tail_ori, tail_tangent = end_direction(p, tail, ori_z, ori_y, ori_x, endpoint_avg_k)
+        fragments.append(FiberFragment(frag_id=fragment_id, coords=p.astype(np.int32),
+                                       head_coord=head.astype(np.float32), tail_coord=tail.astype(np.float32),
+                                       head_ori=head_ori, tail_ori=tail_ori,
+                                       head_tangent=head_tangent, tail_tangent=tail_tangent))
+
+    if verbose:
+        lengths = [f.length for f in fragments]
+        print(f"  [graph] {len(fragments)} fragments kept (len >= {min_fragment_length}). "
+              f"Length: min={min(lengths) if lengths else 0}, "
+              f"mean={int(np.mean(lengths)) if lengths else 0}, "
+              f"max={max(lengths) if lengths else 0}  "
+              f"({time.time()-t0:.1f}s)", flush=True)
+
+    return fragments, seg_labels

@@ -35,13 +35,9 @@ from tqdm import tqdm
 # Ensure package root is in path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from topology_optimizer.step1_sever_h_junctions import sever_h_junctions
-from topology_optimizer.step2_bridge_gaps import find_bridge_candidates
-from topology_optimizer.step3_build_fragment_graph import build_fragment_graph, FiberFragment
-from topology_optimizer.step4_optimize_topology import optimize_topology
+from topology_optimizer.skeleton_graph import sever_h_junctions, build_fragment_graph, FiberFragment
+from topology_optimizer.link_fibers import find_bridge_candidates, optimize_topology
 from topology_optimizer.step5_diffuse_labels import build_labeled_skeleton, diffuse_labels_voronoi, prune_short_fibers_and_repropagate
-from topology_optimizer.clean_border_artifacts import crop_and_separate_border_fibers, separate_broken_fibers
-from topology_optimizer.evaluate_against_gt import load_gt_centerlines_from_gad, compute_metrics
 from topology_optimizer.visualize_results import save_fiber_length_histogram, export_uint16_tiff, export_fibers_as_gad
 
 
@@ -205,7 +201,7 @@ DEFAULT_PARAMS = dict(
     # Step 2: Gap bridging
     max_gap_distance  = 24.0,
     mutual_thresh     = 0.50,
-    forward_thresh    = 0.35,
+    forward_thresh    = -0.30,
     durable_thresh    = 0.40,
     durable_min_frac  = 0.40,
     n_gap_samples     = 7,

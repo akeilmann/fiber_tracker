@@ -20,11 +20,11 @@ from skimage.draw import line_nd
 from skimage.segmentation import watershed
 
 try:
-    from .step3_build_fragment_graph import FiberFragment
-    from .step4_optimize_topology import FiberChain
+    from .skeleton_graph import FiberFragment
+    from .link_fibers import FiberChain
 except ImportError:
-    from step3_build_fragment_graph import FiberFragment
-    from step4_optimize_topology import FiberChain
+    from skeleton_graph import FiberFragment
+    from link_fibers import FiberChain
 
 
 def build_labeled_skeleton(
