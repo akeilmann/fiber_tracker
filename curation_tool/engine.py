@@ -20,7 +20,7 @@ from skimage.graph import route_through_array
 from skimage.morphology import skeletonize
 
 try:
-    from topology_optimizer.step5_diffuse_labels import diffuse_labels_voronoi
+    from topology_optimizer.step5_diffuse_labels import label_fibers
 except ImportError:
     from step5_diffuse_labels import diffuse_labels_voronoi
 
@@ -854,7 +854,7 @@ class RealDataCurationEngine:
                     inst_skel[r_fg[:, 0], r_fg[:, 1], r_fg[:, 2]] = fid
                 else:
                     inst_skel[r_int[:, 0], r_int[:, 1], r_int[:, 2]] = fid
-            inst_vol = diffuse_labels_voronoi(inst_skel, fg_mask=self.current_patch_bin, verbose=False).astype(np.uint16)
+            inst_vol = label_fibers(inst_skel, foreground_mask=self.current_patch_bin, verbose=False).astype(np.uint16)
             inst_vol[~self.current_patch_bin] = 0
             clean_patch_bin = (inst_vol > 0)
 
@@ -876,7 +876,7 @@ class RealDataCurationEngine:
                     inst_skel[r_int[:, 0], r_int[:, 1], r_int[:, 2]] = fid
 
             # Pass 3: Recompute multi-label diffusion, exact distance field and targets using centered curves
-            inst_vol = diffuse_labels_voronoi(inst_skel, fg_mask=self.current_patch_bin, verbose=False).astype(np.uint16)
+            inst_vol = label_fibers(inst_skel, foreground_mask=self.current_patch_bin, verbose=False).astype(np.uint16)
             inst_vol[~self.current_patch_bin] = 0
             clean_patch_bin = (inst_vol > 0)
             inst_skel[~self.current_patch_bin] = 0

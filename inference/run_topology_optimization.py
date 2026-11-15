@@ -37,7 +37,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 from topology_optimizer.skeleton_graph import sever_h_junctions, build_fragment_graph, FiberFragment
 from topology_optimizer.link_fibers import find_bridge_candidates, optimize_topology
-from topology_optimizer.step5_diffuse_labels import build_labeled_skeleton, diffuse_labels_voronoi, prune_short_fibers_and_repropagate
+from topology_optimizer.label_fibers import build_labeled_skeleton, label_fibers
 from topology_optimizer.visualize_results import save_fiber_length_histogram, export_uint16_tiff, export_fibers_as_gad
 
 
@@ -373,7 +373,7 @@ def run_direct_topology_optimization(
     gc.collect()
 
     inst_vol = np.lib.format.open_memmap(inst_vol_path, mode='w+', dtype=np.int32, shape=(D, H, W))
-    diffuse_labels_voronoi(
+    label_fibers(
         inst_skel=inst_skel,
         volume=volume,
         intensity=intensity,
@@ -690,9 +690,9 @@ def run_chunked_topology_optimization(
         )
 
         sub_fg = (sub_vol > 0.05) | (sub_int >= params['fg_threshold'])
-        sub_inst_vol = diffuse_labels_voronoi(
+        sub_inst_vol = label_fibers(
             inst_skel=sub_inst_skel,
-            fg_mask=sub_fg,
+            foreground_mask=sub_fg,
             verbose=False
         )
 
