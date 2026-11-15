@@ -366,7 +366,6 @@ def run_direct_topology_optimization(
         volume_shape=(D, H, W),
         min_chain_length=min_flen,
         out_skel_mmap=inst_skel,
-        verbose=verbose
     )
     inst_skel.flush()
     del fragments, chains
