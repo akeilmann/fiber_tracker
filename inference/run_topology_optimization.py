@@ -36,7 +36,7 @@ from tqdm import tqdm
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from topology_optimizer.skeleton_graph import sever_h_junctions, build_fragment_graph, FiberFragment
-from topology_optimizer.link_fibers import find_bridge_candidates, optimize_topology
+from topology_optimizer.link_fibers import find_bridge_candidates, optimize_topology, UnionFind
 from topology_optimizer.label_fibers import build_labeled_skeleton, label_fibers
 from topology_optimizer.visualize_results import save_fiber_length_histogram, export_uint16_tiff, export_fibers_as_gad
 
@@ -166,25 +166,6 @@ def load_neural_field_array(path: str, mmap_mode: str = 'r'):
         return arr.astype(np.float32)
     else:
         return np.load(path, mmap_mode=mmap_mode)
-
-
-class UnionFind:
-    """Disjoint Set Union (Union-Find) with path compression for fiber identity stitching."""
-    def __init__(self):
-        self.parent = {}
-
-    def find(self, item):
-        if item not in self.parent:
-            self.parent[item] = item
-        if self.parent[item] != item:
-            self.parent[item] = self.find(self.parent[item])
-        return self.parent[item]
-
-    def union(self, item1, item2):
-        root1 = self.find(item1)
-        root2 = self.find(item2)
-        if root1 != root2:
-            self.parent[root1] = root2
 
 
 DEFAULT_PARAMS = dict(

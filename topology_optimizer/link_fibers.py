@@ -70,21 +70,28 @@ class BridgeCandidate:
     path_ori_samples: np.ndarray   # (n, 3) orientation field sampled along the gap
 
 class UnionFind:
-    """Path-compressed union-find with rank."""
-    def __init__(self, n: int):
-        self.parent = list(range(n))
-        self.rank   = [0] * n
+    """Union-find over arbitrary hashable keys, with path compression and union by rank."""
+    def __init__(self, items=()):
+        self.parent, self.rank = {}, {}
+        for x in items:
+            self.add(x)
 
-    def find(self, x: int) -> int:
+    def add(self, x):
+        if x not in self.parent:
+            self.parent[x] = x
+            self.rank[x] = 0
+
+    def find(self, x):
+        self.add(x)
         while self.parent[x] != x:
             self.parent[x] = self.parent[self.parent[x]]
             x = self.parent[x]
         return x
 
-    def union(self, x: int, y: int) -> bool:
+    def union(self, x, y) -> bool:
         rx, ry = self.find(x), self.find(y)
         if rx == ry:
-            return False   # would form a cycle
+            return False  # already connected (adding the edge would form a cycle)
         if self.rank[rx] < self.rank[ry]:
             rx, ry = ry, rx
         self.parent[ry] = rx
@@ -289,7 +296,7 @@ def optimize_topology(fragments, candidates, max_commit_cost=35.0, verbose=True)
     # a single-voxel fragment has only one end ('head'): it can be linked once
     end_key = lambda fid, end: (fid, 'head' if fragments[index[fid]].length == 1 else end)
 
-    uf, used, accepted = UnionFind(len(fragments)), set(), []
+    uf, used, accepted = UnionFind(range(len(fragments))), set(), []
     for cost, c in sorted(((bridge_cost(c), c) for c in candidates), key=lambda t: t[0]):
         if max_commit_cost is not None and cost > max_commit_cost:
             break

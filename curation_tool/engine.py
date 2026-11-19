@@ -20,9 +20,9 @@ from skimage.graph import route_through_array
 from skimage.morphology import skeletonize
 
 try:
-    from topology_optimizer.step5_diffuse_labels import label_fibers
+    from topology_optimizer.label_fibers import label_fibers
 except ImportError:
-    from step5_diffuse_labels import diffuse_labels_voronoi
+    from label_fibers import label_fibers
 
 class RealDataCurationEngine:
     """

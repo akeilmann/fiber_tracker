@@ -1,6 +1,6 @@
 """
 Tests for the classical orientation source (orientation/structure_tensor.py)
-and the sign-invariant averaging in topology_optimizer/step1_sever_h_junctions.py.
+and the sign-invariant averaging in topology_optimizer/skeleton_graph.py.
 
 Run with:  python -m unittest discover tests
 """
