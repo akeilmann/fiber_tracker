@@ -190,7 +190,6 @@ def run_direct_topology_optimization(
     orientation_path: str,
     volume_path: str,
     out_dir: str,
-    gad_path: str = None,
     params: dict = None,
     verbose: bool = True,
 ):
@@ -491,6 +490,5 @@ if __name__ == '__main__':
         orientation_path=args.orientation,
         volume_path=args.volume,
         out_dir=args.out,
-        gad_path=args.gad,
         params=params
     )
