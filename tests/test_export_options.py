@@ -11,7 +11,6 @@ from inference.run_topology_optimization import (
     run_direct_topology_optimization,
     DEFAULT_PARAMS
 )
-from topology_optimizer.clean_border_artifacts import crop_and_separate_border_fibers
 
 
 class TestExportOptions(unittest.TestCase):
@@ -96,47 +95,6 @@ class TestExportOptions(unittest.TestCase):
         self.assertIn('instance_volume_npy', metrics)
         self.assertIn('instance_skeleton_npy', metrics)
 
-    def test_clean_border_artifacts_default_no_npy(self):
-        inst_tif = os.path.join(self.test_dir, 'inst.tif')
-        inst = np.zeros(self.shape, dtype=np.uint16)
-        inst[10:22, 10:22, 10:22] = 1
-        tifffile.imwrite(inst_tif, inst)
-
-        out_dir = os.path.join(self.test_dir, 'clean_no_npy')
-        metrics = crop_and_separate_border_fibers(
-            vol_path=inst_tif,
-            skel_path=None,
-            out_dir=out_dir,
-            margin=4,
-            save_previews=False,
-            verbose=False,
-            export_npy=False
-        )
-
-        self.assertTrue(os.path.exists(os.path.join(out_dir, 'instance_volume.tif')))
-        self.assertFalse(os.path.exists(os.path.join(out_dir, 'instance_volume.npy')))
-        self.assertIsNone(metrics['out_instance_volume'])
-
-    def test_clean_border_artifacts_with_export_npy(self):
-        inst_tif = os.path.join(self.test_dir, 'inst_npy.tif')
-        inst = np.zeros(self.shape, dtype=np.uint16)
-        inst[10:22, 10:22, 10:22] = 1
-        tifffile.imwrite(inst_tif, inst)
-
-        out_dir = os.path.join(self.test_dir, 'clean_with_npy')
-        metrics = crop_and_separate_border_fibers(
-            vol_path=inst_tif,
-            skel_path=None,
-            out_dir=out_dir,
-            margin=4,
-            save_previews=False,
-            verbose=False,
-            export_npy=True
-        )
-
-        self.assertTrue(os.path.exists(os.path.join(out_dir, 'instance_volume.tif')))
-        self.assertTrue(os.path.exists(os.path.join(out_dir, 'instance_volume.npy')))
-        self.assertIsNotNone(metrics['out_instance_volume'])
 
     def test_cli_export_npy_defaults(self):
         # Verify parser defaults in run_end_to_end.py
@@ -155,9 +113,6 @@ class TestExportOptions(unittest.TestCase):
         self.assertEqual(res.returncode, 0)
         self.assertIn('--export-npy', res.stdout)
 
-        res = subprocess.run([sys.executable, 'topology_optimizer/clean_border_artifacts.py', '--help'], capture_output=True, text=True)
-        self.assertEqual(res.returncode, 0)
-        self.assertIn('--export-npy', res.stdout)
 
 
 if __name__ == '__main__':

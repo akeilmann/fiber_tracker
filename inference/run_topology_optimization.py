@@ -250,14 +250,13 @@ def run_direct_topology_optimization(
     print("=" * 85, flush=True)
     t3 = time.time()
 
-    segments, _ = build_segment_graph(
+    segments = build_segment_graph(
         skeleton=clean_skel,
         ori_z=ori_z, ori_y=ori_y, ori_x=ori_x,
         min_segment_length=params['min_fiber_length'],
         endpoint_avg_k=params['endpoint_avg_k'],
         radius=params['radius'],
         verbose=verbose,
-        return_seg_labels=False,
     )
     del clean_skel
     gc.collect()
@@ -613,7 +612,7 @@ def run_chunked_topology_optimization(
             verbose=False
         )
 
-        sub_segments, _ = build_segment_graph(
+        sub_segments = build_segment_graph(
             skeleton=sub_clean_skel,
             ori_z=sub_oz, ori_y=sub_oy, ori_x=sub_ox,
             min_segment_length=params['min_fiber_length'],

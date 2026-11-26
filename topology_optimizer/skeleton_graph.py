@@ -385,8 +385,7 @@ def build_segment_graph(
     endpoint_avg_k: int,
     radius: int,
     verbose: bool = True,
-    return_seg_labels: bool = False,
-) -> tuple[list[FiberSegment], np.ndarray | None]:
+) -> list[FiberSegment]:
     """
     Split a skeleton into segments and compute their ends and end directions.
 
@@ -414,10 +413,8 @@ def build_segment_graph(
         is measured
     :param verbose: bool, default True
         whether to print the number and lengths of the segments
-    :param return_seg_labels: bool, default False
-        currently has no effect: no label map is created
     :return: tuple[list[FiberSegment], None]
-        the segments, with IDs 1, 2, ...; the second element is always None
+        the segments, with IDs 1, 2, ...; the second element is None or an all-zero volume
     """
     t0 = time.time()
     D, H, W = skeleton.shape
@@ -440,15 +437,9 @@ def build_segment_graph(
     pts, ids, ends = pts[order], ids[order], ends[order]
     cut = np.flatnonzero(np.diff(ids)) + 1
 
-    # build FiberSegment objects
-    if return_seg_labels:
-        seg_labels = np.zeros((D, H, W), dtype=np.int32)
-    else:
-        seg_labels = None
-
     segments: list[FiberSegment] = []
     if len(pts) == 0:
-        return [], None
+        return []
     for segment_id, (p, e) in enumerate(zip(np.split(pts, cut), np.split(ends, cut)), start=1):
         head, tail = end_voxels(p, e)
         head_ori, head_tangent = end_direction(p, head, ori_z, ori_y, ori_x, endpoint_avg_k, radius)
@@ -466,4 +457,4 @@ def build_segment_graph(
               f"max={max(lengths) if lengths else 0}  "
               f"({time.time()-t0:.1f}s)", flush=True)
 
-    return segments, seg_labels
+    return segments

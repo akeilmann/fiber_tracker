@@ -8,8 +8,6 @@ from scipy.spatial import cKDTree
 from dataclasses import dataclass
 from collections import defaultdict
 
-from sympy.sets import sets
-
 from .skeleton_graph import FiberSegment
 from topology_optimizer.orientation_utils import axial_mean
 
