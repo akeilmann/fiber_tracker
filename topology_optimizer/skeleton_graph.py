@@ -1,6 +1,5 @@
 # TODO make sure "rules" are correct - are they new?
 # TODO justify thresholds; max_rung_length Huang scales by fiber diameter?
-# TODO further renaming/making consistent
 
 
 import gc

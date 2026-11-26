@@ -1,10 +1,3 @@
-"""
-fiber_io.py
-=============
-Exports segmented 3D fiber centerlines into GeoDict .gad format (JSON-based).
-Fully compatible with GeoDict, the Altendorf-Jeulin Model, and evaluate_against_gt.py.
-"""
-
 import os
 import json
 import time
@@ -12,6 +5,9 @@ import platform
 from datetime import datetime
 import numpy as np
 from scipy.spatial import cKDTree
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
 
 def save_fiber_length_histogram(
     pred_lengths: list[int],
@@ -20,12 +16,13 @@ def save_fiber_length_histogram(
 ):
     """Bar histogram of fiber lengths (predicted vs GT if available)."""
     fig, ax = plt.subplots(figsize=(9, 5))
-    bins = np.logspace(np.log10(max(1, min(pred_lengths))),
-                       np.log10(max(pred_lengths) + 1), 40)
+    if pred_lengths:
+        bins = np.logspace(np.log10(max(1, min(pred_lengths))),
+                           np.log10(max(pred_lengths) + 1), 40)
 
-    ax.hist(pred_lengths, bins=bins, color='steelblue', alpha=0.75, label='Predicted')
-    if gt_lengths:
-        ax.hist(gt_lengths, bins=bins, color='tomato', alpha=0.60, label='Ground Truth')
+        ax.hist(pred_lengths, bins=bins, color='steelblue', alpha=0.75, label='Predicted')
+        if gt_lengths:
+            ax.hist(gt_lengths, bins=bins, color='tomato', alpha=0.60, label='Ground Truth')
 
     ax.set_xscale('log')
     ax.set_xlabel('Fiber length (voxels)', fontsize=12)
@@ -46,7 +43,6 @@ def export_uint16_tiff(arr: np.ndarray, out_path: str, verbose: bool = True):
     Uses chunked / slice-by-slice writing for volumes > 1GB to ensure low peak RAM usage.
     """
     import tifffile
-    import time
     t0 = time.time()
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)

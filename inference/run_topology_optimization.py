@@ -17,7 +17,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from topology_optimizer.skeleton_graph import sever_h_junctions, build_segment_graph, FiberSegment
 from topology_optimizer.link_fibers import find_bridge_candidates, optimize_topology, UnionFind
 from topology_optimizer.label_fibers import build_labeled_skeleton, label_fibers
-from topology_optimizer.visualize_results import save_fiber_length_histogram, export_uint16_tiff, export_fibers_as_gad
+from topology_optimizer.fiber_io import save_fiber_length_histogram, export_uint16_tiff, export_fibers_as_gad
 
 
 def get_default_volume(target_dir='data/fibers_to_segment'):
