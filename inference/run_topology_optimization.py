@@ -1,21 +1,3 @@
-"""
-run_topology_optimization.py
-============================
-Executes the Global Fiber Topology Optimization Pipeline directly on the full volume:
-  1. Memory-Mapped Input Volume Loading (0 GB resident RAM for 25 GB orientation field)
-  2. 3D Potential Field Thinning & Spur Pruning
-  3. Orientation-Guided Transverse H-Severing
-  4. Vectorized Fragment Graph Construction & Durable Endpoint Averaging
-  5. Post-H-Sever Direction-Durable Multi-Probe Gap Candidate Search
-  6. Global Min-Cost Linear Assignment Matching with Degree-1 & No-Cycle Constraints (Zero False Merges)
-  7. Connected-Component Bounded Label Diffusion (Zero bleed across empty voxels)
-  8. Short Fiber Filtering (< 5 vx) before Label Diffusion
-
-Modes:
-  - 'direct' (default): Runs global topology optimization directly across the entire volume with strict degree-1 matching.
-  - 'chunked': Runs overlap consensus stitching across 3D sub-blocks.
-"""
-
 import os
 import sys
 import time
@@ -26,9 +8,6 @@ from collections import defaultdict
 import numpy as np
 from scipy.ndimage import gaussian_filter, convolve
 from skimage.morphology import skeletonize
-from scipy.spatial import cKDTree
-from scipy.sparse import csr_matrix
-from scipy.sparse.csgraph import connected_components
 import tifffile
 from tqdm import tqdm
 
@@ -328,10 +307,10 @@ def run_direct_topology_optimization(
     print(f"  Topology optimization complete in {time.time()-t5:.1f}s -- {len(chains)} continuous fibers resolved", flush=True)
 
     # -------------------------------------------------------------------------
-    # STAGE 6: Multi-Label Voronoi Label Diffusion (Disk-Backed)
+    # STAGE 6: Label fibers
     # -------------------------------------------------------------------------
     print("\n" + "=" * 85, flush=True)
-    print(" STAGE 6: Multi-Label Voronoi Label Diffusion", flush=True)
+    print(" STAGE 6: Label fibers", flush=True)
     print("=" * 85, flush=True)
     t6 = time.time()
 
@@ -365,7 +344,7 @@ def run_direct_topology_optimization(
         verbose=verbose
     )
     inst_vol.flush()
-    print(f"  Diffusion complete in {time.time()-t6:.1f}s -- {n_kept_chains} continuous fibers resolved in final volume", flush=True)
+    print(f"  Labelling complete in {time.time()-t6:.1f}s -- {n_kept_chains} continuous fibers resolved in final volume", flush=True)
 
     # -------------------------------------------------------------------------
     # STAGE 7: Exporting Volumes & Centerlines
@@ -1003,7 +982,7 @@ if __name__ == '__main__':
     parser.add_argument('--border-mode', type=str, default='crop', choices=['crop', 'zero'],
                         help="Border cut mode: 'crop' (default, trims shape) or 'zero' (preserves shape, zeroes boundary)")
     parser.add_argument('--min-fiber-length', type=int, default=5,
-                        help="Minimum fiber centerline length in voxels (default: 5). Shorter fibers are filtered before diffusion.")
+                        help="Minimum fiber centerline length in voxels (default: 5). Shorter fibers are filtered before labelling.")
     parser.add_argument('--export-gad', action='store_true', default=False,
                         help="Export resolved fibers to GeoDict .gad format (default: False, non-active)")
     parser.add_argument('--gad-voxel-size', type=float, default=1e-06,

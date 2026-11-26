@@ -1,14 +1,10 @@
-#TODO reference Griessner
 #TODO watershed or euclidean
 
-import gc
-from collections import defaultdict
 import numpy as np
 from scipy.ndimage import label as nd_label, find_objects
 from scipy.spatial import cKDTree
 from skimage.draw import line_nd
 from skimage.segmentation import watershed
-from sympy.sets import sets
 
 try:
     from .skeleton_graph import FiberSegment

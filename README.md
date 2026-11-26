@@ -261,13 +261,6 @@ python inference/run_topology_optimization.py --mode chunked --chunk-size 512 --
 
 To evaluate the result against a known ground truth, pass the reference `.gad` file with `--gad path/to/model.gad`.
 
-### Border cleanup
-
-Removes a margin from an existing result and relabels fibers that are cut by the new boundary:
-
-```bash
-python topology_optimizer/clean_border_artifacts.py --input outputs/my_sample_resolved --margin 32
-```
 
 ---
 
@@ -389,7 +382,7 @@ Synthetic volumes provide exact ground truth but do not look like real data. To 
 | `--export-gad`, `--gad-voxel-size` | off, `1e-06` | GeoDict export |
 | `--export-npy` | off | Also write `.npy` arrays |
 
-### `topology_optimizer/clean_border_artifacts.py`
+### `topology_optimizer
 
 | Option | Default | Description |
 | :--- | :--- | :--- |
@@ -496,8 +489,9 @@ This project is released under the [MIT License](LICENSE).
 Parts of this codebase were developed with the assistance of AI coding tools (Google Gemini).
 
 ## References
-[1] X. Huang, D. Wen, Y. Zhao, Q. Wang, W. Zhou, D. Deng, 2016. Skeleton-based tracing of curved fibers from 3D X-ray microtomographic imaging. Results in Physics, 6, 170–177. [doi: 10.1016/j.rinp.2016.03.008](https://doi.org/10.1016/j.rinp.2016.03.008)
 
-[2] A. Grießer, R. Westerteiger, E. Glatt, H. Hagen, A. Wiegmann, 2022. Identification and analysis of fibers in ultra-large micro-CT scans of nonwoven textiles using deep learning. The Journal of The Textile Institute, (11), 1647–1657. [doi: 10.1080/00405000.2022.2145429](https://doi.org/10.1080/00405000.2022.2145429)
+[1] A. Grießer, R. Westerteiger, E. Glatt, H. Hagen, A. Wiegmann, 2022. Identification and analysis of fibers in ultra-large micro-CT scans of nonwoven textiles using deep learning. The Journal of The Textile Institute, (11), 1647–1657. [doi: 10.1080/00405000.2022.2145429](https://doi.org/10.1080/00405000.2022.2145429)
+
+[2] X. Huang, D. Wen, Y. Zhao, Q. Wang, W. Zhou, D. Deng, 2016. Skeleton-based tracing of curved fibers from 3D X-ray microtomographic imaging. Results in Physics, 6, 170–177. [doi: 10.1016/j.rinp.2016.03.008](https://doi.org/10.1016/j.rinp.2016.03.008)
 
 [3] Jeppesen, N., et al., 2021. Quantifying effects of manufacturing methods on fiber orientation in unidirectional composites using structure tensor analysis. Composites Part A: Applied Science and Manufacturing 149: 106541.
