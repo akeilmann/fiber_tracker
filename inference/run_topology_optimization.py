@@ -221,7 +221,7 @@ def run_direct_topology_optimization(
         raise ValueError('Empty skeleton: core_threshold too high for this potential field?')
     skel, intensity, volume, orientation = crop_border([skel, intensity, volume, orientation], params['cut_border'])
     D, H, W = skel.shape
-    fg = (np.asarray(volume) >= params['vol_threshold']) | (np.asarray(intensity) > params['fg_threshold'])
+    fg = (np.asarray(volume) > params['vol_threshold']) | (np.asarray(intensity) >= params['fg_threshold'])
     orientation = np.where(fg[..., None], orientation, 0.0).astype(np.float32)
     del fg
     ori_z, ori_y, ori_x = orientation[..., 0], orientation[..., 1], orientation[..., 2]
