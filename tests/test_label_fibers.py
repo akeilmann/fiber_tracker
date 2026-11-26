@@ -57,7 +57,7 @@ class TestBuildLabeledSkeleton(unittest.TestCase):
     def test_segments_and_bridges_drawn(self):
         segs = self.segments()
         chains = [FiberChain(7, [1, 2], [(np.array([9., 10, 10]), np.array([14., 10, 10]))], 26)]
-        skel, n = build_labeled_skeleton(segs, chains, None, self.shape, min_chain_length=5)
+        skel, n = build_labeled_skeleton(segs, chains, self.shape, min_fiber_length=5)
         self.assertEqual(n, 1)
         self.assertEqual(skel.dtype, np.int32)
         np.testing.assert_array_equal(skel[0:30, 10, 10], 1)   # segments + bridge, relabeled 1
@@ -67,7 +67,7 @@ class TestBuildLabeledSkeleton(unittest.TestCase):
     def test_labels_follow_chain_order(self):
         segs = self.segments()
         chains = [FiberChain(5, [2], [], 16), FiberChain(1, [1], [], 10)]
-        skel, n = build_labeled_skeleton(segs, chains, None, self.shape, min_chain_length=1)
+        skel, n = build_labeled_skeleton(segs, chains, self.shape, min_fiber_length=1)
         self.assertEqual(n, 2)
         self.assertEqual(skel[20, 10, 10], 1)
         self.assertEqual(skel[5, 10, 10], 2)
@@ -75,26 +75,26 @@ class TestBuildLabeledSkeleton(unittest.TestCase):
     def test_min_chain_length(self):
         segs = self.segments()
         chains = [FiberChain(1, [2], [], 16), FiberChain(2, [1], [], 10), FiberChain(3, [3], [], 2)]
-        skel, n = build_labeled_skeleton(segs, chains, None, self.shape, min_chain_length=10)
+        skel, n = build_labeled_skeleton(segs, chains, self.shape, min_fiber_length=10)
         self.assertEqual(n, 2)
         self.assertEqual(set(np.unique(skel)), {0, 1, 2})
 
     def test_diagonal_bridge_is_connected(self):
         segs = [line_segment(1, 0, 5), line_segment(2, 10, 15, fixed=(14, 13))]
         chains = [FiberChain(1, [1, 2], [(np.array([4., 10, 10]), np.array([10., 14, 13]))], 10)]
-        skel, _ = build_labeled_skeleton(segs, chains, None, self.shape, min_chain_length=1)
+        skel, _ = build_labeled_skeleton(segs, chains, self.shape, min_fiber_length=1)
         _, n_cc = nd_label(skel > 0, np.ones((3, 3, 3), bool))
         self.assertEqual(n_cc, 1)
 
     def test_writes_into_given_array_and_clears_it(self):
         out = np.full(self.shape, 99, np.int32)
-        skel, _ = build_labeled_skeleton(self.segments(), [FiberChain(1, [1], [], 10)], None, self.shape,
-                                         min_chain_length=1, out_skel_mmap=out)
+        skel, _ = build_labeled_skeleton(self.segments(), [FiberChain(1, [1], [], 10)], self.shape,
+                                         min_fiber_length=1, out_skel_mmap=out)
         self.assertIs(skel, out)
         self.assertEqual(int((out > 0).sum()), 10)
 
     def test_no_chains(self):
-        skel, n = build_labeled_skeleton(self.segments(), [], None, self.shape)
+        skel, n = build_labeled_skeleton(self.segments(), [], self.shape)
         self.assertEqual(n, 0)
         self.assertFalse(skel.any())
 

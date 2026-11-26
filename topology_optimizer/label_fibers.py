@@ -17,9 +17,8 @@ except ImportError:
 def build_labeled_skeleton(
     segments: list[FiberSegment],
     chains: list[FiberChain],
-    seg_labels: np.ndarray | None,
     volume_shape: tuple[int, int, int],
-    min_chain_length: int = 5,
+    min_fiber_length: int = 5,
     out_skel_mmap: np.ndarray | None = None,
 ) -> tuple[np.ndarray, int]:
     """
@@ -39,7 +38,7 @@ def build_labeled_skeleton(
         unused; kept for compatibility with the driver
     :param volume_shape: tuple[int, int, int]
         shape (D, H, W) of the output volume
-    :param min_chain_length: int, default 5
+    :param min_fiber_length: int, default 5
         minimum total segment length of a chain in voxels
     :param out_skel_mmap: np.ndarray of int32, shape (D, H, W), or None
         array to write into, e.g. a memory-mapped file; a new array is
@@ -48,7 +47,7 @@ def build_labeled_skeleton(
         labeled centerline volume (int32, 0 = background) and the number of
         kept chains
     """
-    kept = [c for c in chains if c.total_length >= min_chain_length]
+    kept = [c for c in chains if c.total_length >= min_fiber_length]
     label_of = {fid: k for k, c in enumerate(kept, start=1) for fid in c.segment_ids}
     skel = out_skel_mmap if out_skel_mmap is not None else np.zeros(volume_shape, np.int32)
     skel[:] = 0
