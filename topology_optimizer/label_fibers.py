@@ -8,17 +8,18 @@ from scipy.ndimage import label as nd_label, find_objects
 from scipy.spatial import cKDTree
 from skimage.draw import line_nd
 from skimage.segmentation import watershed
+from sympy.sets import sets
 
 try:
-    from .skeleton_graph import FiberFragment
+    from .skeleton_graph import FiberSegment
     from .link_fibers import FiberChain
 except ImportError:
-    from skeleton_graph import FiberFragment
+    from skeleton_graph import FiberSegment
     from link_fibers import FiberChain
 
 
 def build_labeled_skeleton(
-    fragments: list[FiberFragment],
+    segments: list[FiberSegment],
     chains: list[FiberChain],
     seg_labels: np.ndarray | None,
     volume_shape: tuple[int, int, int],
@@ -28,14 +29,14 @@ def build_labeled_skeleton(
     """
     Draw the fiber chains into a labeled centerline volume.
 
-    Chains with a total fragment length below *min_chain_length* voxels are
+    Chains with a total segment length below *min_chain_length* voxels are
     discarded.  The remaining chains are numbered 1, 2, ... in the given
     order (longest first, as returned by optimize_topology).  The voxels of
-    every fragment are set to the label of its chain, and every accepted
+    every segment are set to the label of its chain, and every accepted
     bridge is drawn as a straight digital line with the same label.
 
-    :param fragments: list[FiberFragment]
-        fragments from build_fragment_graph
+    :param segments: list[FiberSegment]
+        segments from build_segment_graph
     :param chains: list[FiberChain]
         chains from optimize_topology
     :param seg_labels: np.ndarray or None
@@ -43,7 +44,7 @@ def build_labeled_skeleton(
     :param volume_shape: tuple[int, int, int]
         shape (D, H, W) of the output volume
     :param min_chain_length: int, default 5
-        minimum total fragment length of a chain in voxels
+        minimum total segment length of a chain in voxels
     :param out_skel_mmap: np.ndarray of int32, shape (D, H, W), or None
         array to write into, e.g. a memory-mapped file; a new array is
         created if None
@@ -52,12 +53,12 @@ def build_labeled_skeleton(
         kept chains
     """
     kept = [c for c in chains if c.total_length >= min_chain_length]
-    label_of = {fid: k for k, c in enumerate(kept, start=1) for fid in c.fragment_ids}
+    label_of = {fid: k for k, c in enumerate(kept, start=1) for fid in c.segment_ids}
     skel = out_skel_mmap if out_skel_mmap is not None else np.zeros(volume_shape, np.int32)
     skel[:] = 0
-    for f in fragments:  # fragment voxels
-        if f.frag_id in label_of:
-            skel[tuple(f.coords.T)] = label_of[f.frag_id]
+    for f in segments:  # segment voxels
+        if f.seg_id in label_of:
+            skel[tuple(f.coords.T)] = label_of[f.seg_id]
     for k, c in enumerate(kept, start=1):  # straight bridge lines
         for a, b in c.bridge_coords:
             skel[line_nd(np.round(a).astype(int), np.round(b).astype(int), endpoint=True)] = k

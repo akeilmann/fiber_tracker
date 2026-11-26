@@ -1,4 +1,4 @@
-from .skeleton_graph import sever_h_junctions, build_fragment_graph, FiberFragment
+from .skeleton_graph import sever_h_junctions, build_segment_graph, FiberSegment
 from .link_fibers import find_bridge_candidates, BridgeCandidate, optimize_topology, FiberChain
 from .label_fibers import build_labeled_skeleton, label_fibers
 from .clean_border_artifacts import crop_and_separate_border_fibers, crop_and_separate_skeleton_fibers, separate_broken_fibers
@@ -9,8 +9,8 @@ __all__ = [
     'sever_h_junctions',
     'find_bridge_candidates',
     'BridgeCandidate',
-    'build_fragment_graph',
-    'FiberFragment',
+    'build_segment_graph',
+    'FiberSegment',
     'optimize_topology',
     'FiberChain',
     'build_labeled_skeleton',

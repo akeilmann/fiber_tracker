@@ -1,7 +1,5 @@
 # TODO make sure "rules" are correct - are they new?
 # TODO justify thresholds; max_rung_length Huang scales by fiber diameter?
-# TODO rename branch, fragment, segment into segment
-# TODO rename long_neighbors, trunk_oris, min_neighbor_length into trunk
 # TODO further renaming/making consistent
 
 
@@ -19,17 +17,17 @@ import time
 from topology_optimizer.orientation_utils import axial_mean
 
 @dataclass
-class FiberFragment:
+class FiberSegment:
     """
     A junction-free piece of the skeleton, i.e. a simple path of 26-connected voxels.
 
     Which end is called head and which tail is arbitrary.  Both end directions
-    point outward, away from the fragment.
+    point outward, away from the segment.
 
-    :param frag_id: int
-        fragment ID, starting at 1
+    :param seg_id: int
+        segment ID, starting at 1
     :param coords: np.ndarray of int, shape (n, 3)
-        (z, y, x) coordinates of the fragment voxels in raster order
+        (z, y, x) coordinates of the segment voxels in raster order
     :param head_coord: np.ndarray of float, shape (3,)
         coordinates of the first end voxel
     :param tail_coord: np.ndarray of float, shape (3,)
@@ -45,7 +43,7 @@ class FiberFragment:
 
     The attribute *length* (int) is set to the number of voxels.
     """
-    frag_id: int
+    seg_id: int
     coords: np.ndarray
 
     head_coord:   np.ndarray = field(default_factory=lambda: np.zeros(3, dtype=np.float32))
@@ -59,15 +57,15 @@ class FiberFragment:
         self.length = len(self.coords)
 
 
-def classify_branch(voxels, n_junctions,
+def classify_segment(voxels, n_junctions,
                     trunk_oris, ori_z, ori_y, ori_x,
                     rung_thresh, perp_thresh):
     """
-    Decides whether a short skeleton branch is an H-junction rung.
+    Decides whether a short skeleton segment is an H-junction rung.
 
     Classification is inspired by Huang et al. (2016) (TODO plus more rules?).
     A rung is a short bridge between two fibers; the trunks are the long
-    branches that clearly belong to a fiber::
+    segments that clearly belong to a fiber::
 
         fiber 1       fiber 2
           o             o      <- trunk
@@ -81,22 +79,22 @@ def classify_branch(voxels, n_junctions,
     The rules are checked in order and the first one that applies is
     returned:
 
-    * **Rule 1** – the branch is a single voxel touching at least one
+    * **Rule 1** – the segment is a single voxel touching at least one
       junction.  A single voxel has no direction, so it is removed.
-    * **Rule A** – the branch connects at least two junctions and its
+    * **Rule A** – the segment connects at least two junctions and its
       end-to-end direction deviates from the mean image orientation along
-      the branch, i.e. ``|dot(branch_dir, o_mean)| < rung_thresh``.
-    * **Rule B** – the branch direction is close to perpendicular to the
+      the segment, i.e. ``|dot(segment_dir, o_mean)| < rung_thresh``.
+    * **Rule B** – the segment direction is close to perpendicular to the
       mean orientation of the neighboring trunks, i.e.
-      ``1 - |dot(branch_dir, trunk_mean_ori)| > perp_thresh``.
+      ``1 - |dot(segment_dir, trunk_mean_ori)| > perp_thresh``.
 
     :param voxels: np.ndarray of int, shape (n, 3)
-        (z, y, x) coordinates of the branch voxels; the branch direction is
+        (z, y, x) coordinates of the segment voxels; the segment direction is
         taken from the first to the last row
     :param n_junctions: int
-        number of distinct junction clusters the branch touches
+        number of distinct junction clusters the segment touches
     :param trunk_oris: np.ndarray of float, shape (k, 3)
-        mean orientations of the long neighboring branches (trunks); may be
+        mean orientations of the long neighboring segments (trunks); may be
         empty, in which case Rule B is skipped
     :param ori_z: np.ndarray of float, shape (D, H, W)
         z component of the unit orientation field
@@ -105,36 +103,36 @@ def classify_branch(voxels, n_junctions,
     :param ori_x: np.ndarray of float, shape (D, H, W)
         x component of the unit orientation field
     :param rung_thresh: float
-        threshold for Rule A on ``|cos|`` of the angle between branch and
-        image orientation; 0.60 means the branch makes more than ~53 deg
+        threshold for Rule A on ``|cos|`` of the angle between segment and
+        image orientation; 0.60 means the segment makes more than ~53 deg
         with the image orientation
     :param perp_thresh: float
-        threshold for Rule B on ``1 - |cos|`` of the angle between branch
-        and trunk orientation; 0.50 means the branch makes more than
+        threshold for Rule B on ``1 - |cos|`` of the angle between segment
+        and trunk orientation; 0.50 means the segment makes more than
         60 deg with the trunks
     :return: str or None
-        ``'1'``, ``'A'`` or ``'B'`` for the rule that marks the branch as a
-        rung, or None if the branch is kept
+        ``'1'``, ``'A'`` or ``'B'`` for the rule that marks the segment as a
+        rung, or None if the segment is kept
     """
     # Rule 1: a single voxel has no direction; remove it if it touches a junction
     if len(voxels) == 1:
         return '1' if n_junctions >= 1 else None
 
-    branch_vec = (voxels[-1] - voxels[0]).astype(np.float32)
-    branch_dir = branch_vec / np.linalg.norm(branch_vec)
+    segment_vec = (voxels[-1] - voxels[0]).astype(np.float32)
+    segment_dir = segment_vec / np.linalg.norm(segment_vec)
 
     # Rule A: compare graph orientation along the rung candidate to image orientation
     if n_junctions >= 2:
         idx = tuple(voxels.T)
         o_mean, _ = axial_mean(np.column_stack([ori_z[idx], ori_y[idx], ori_x[idx]]))
-        if o_mean is not None and abs(np.dot(branch_dir, o_mean)) < rung_thresh:
+        if o_mean is not None and abs(np.dot(segment_dir, o_mean)) < rung_thresh:
             return 'A'
 
     # Rule B: compare rung candidate direction to fiber direction (long neighbors, trunks)
     # TODO point out differences to Huang
     if len(trunk_oris) > 0:
         trunk_mean_ori, _ = axial_mean(trunk_oris)
-        if 1.0 - abs(np.dot(branch_dir, trunk_mean_ori)) > perp_thresh:
+        if 1.0 - abs(np.dot(segment_dir, trunk_mean_ori)) > perp_thresh:
             return 'B'
     return None
 
@@ -144,7 +142,7 @@ def sever_h_junctions(
     ori_y: np.ndarray,
     ori_x: np.ndarray,
     max_rung_length: int,
-    min_neighbor_length: int,
+    min_trunk_length: int,
     perp_thresh: float,
     rung_thresh: float,
     verbose: bool = True,
@@ -152,12 +150,12 @@ def sever_h_junctions(
     """
     Removes H-junction rungs from a binary skeleton, inspired by Huang et al. (2016).
 
-    The skeleton is split into branches by removing all junction voxels
+    The skeleton is split into segment by removing all junction voxels
     (voxels with at least three 26-neighbors).  Junction voxels are grouped
-    into junction clusters, and two branches are neighbors if they touch the
-    same cluster.  Every branch with at most *max_rung_length* voxels is then
-    classified by *classify_branch*, with its neighbors of at least
-    *min_neighbor_length* voxels serving as trunks.  Branches classified as
+    into junction clusters, and two segments are neighbors if they touch the
+    same cluster.  Every segment with at most *max_rung_length* voxels is then
+    classified by *classify_segment*, with its neighbors of at least
+    *min_trunk_length* voxels serving as trunks.  Segments classified as
     rungs are deleted from a copy of the skeleton; junction voxels are kept.
 
     :param skeleton: np.ndarray of bool, shape (D, H, W)
@@ -169,10 +167,10 @@ def sever_h_junctions(
     :param ori_x: np.ndarray of float, shape (D, H, W)
         x component of the unit orientation field
     :param max_rung_length: int
-        branches with more voxels than this are never rungs
-    :param min_neighbor_length: int, default 30
-        minimum number of voxels for a neighboring branch to count as a
-        trunk in Rule B; avoids comparing short branches to each other
+        segments with more voxels than this are never rungs
+    :param min_trunk_length: int, default 30
+        minimum number of voxels for a neighboring segment to count as a
+        trunk in Rule B; avoids comparing short segments to each other
     :param perp_thresh: float, default 0.50
         sever if ``1 - |dot(rung_dir, trunk_ori)| > perp_thresh``;
         0.50 means the rung makes more than 60 deg with the trunks
@@ -183,7 +181,7 @@ def sever_h_junctions(
     :param verbose: bool, default True
         whether to print the number of severed rungs and removed voxels
     :return: np.ndarray of bool, shape (D, H, W)
-        copy of the skeleton with the rung branches removed
+        copy of the skeleton with the rung segments removed
     """
 
     D, H, W = skeleton.shape
@@ -191,46 +189,46 @@ def sever_h_junctions(
     NBRS[1, 1, 1] = 0  # the 26 neighbours, not the voxel itself
     S26 = np.ones((3, 3, 3), bool)  # 26-connectivity for labelling
 
-    # Step 1: label all branch segments (non-junction components)
+    # Step 1: label all segments (non-junction components)
     n_nbrs_per_voxel = convolve(skeleton.astype(np.uint8), NBRS, mode='constant')
     junction_mask = skeleton & (n_nbrs_per_voxel >= 3)
-    labeled_branches, n_branches = nd_label(skeleton & ~junction_mask, S26)  # branches = skeleton minus junctions
-    if n_branches == 0:
+    labeled_segments, n_segments = nd_label(skeleton & ~junction_mask, S26)  # segments = skeleton minus junctions
+    if n_segments == 0:
         return skeleton.copy()
 
-    # Step 2: compute per-branch orientations & collect coords
-    branch_z, branch_y, branch_x = np.where(labeled_branches > 0)
-    branch_ids = labeled_branches[branch_z, branch_y, branch_x]
-    branch_sizes = np.bincount(branch_ids, minlength=n_branches + 1)
+    # Step 2: compute per-segment orientations & collect coords
+    segment_z, segment_y, segment_x = np.where(labeled_segments > 0)
+    segment_ids = labeled_segments[segment_z, segment_y, segment_x]
+    segmen_sizes = np.bincount(segment_ids, minlength=n_segments + 1)
 
     # Axial mean orientation
-    v = np.column_stack([ori_z[branch_z, branch_y, branch_x], ori_y[branch_z, branch_y, branch_x], ori_x[branch_z, branch_y, branch_x]]).astype(np.float64)
+    v = np.column_stack([ori_z[segment_z, segment_y, segment_x], ori_y[segment_z, segment_y, segment_x], ori_x[segment_z, segment_y, segment_x]]).astype(np.float64)
     v /= np.maximum(np.linalg.norm(v, axis=1, keepdims=True), 1e-8)
-    T = np.zeros((n_branches + 1, 3, 3))
+    T = np.zeros((n_segments + 1, 3, 3))
     for i in range(3):
         for j in range(3):
-            T[:, i, j] = np.bincount(branch_ids, weights=v[:, i] * v[:, j], minlength=n_branches + 1)
-    _, evecs = np.linalg.eigh(T)  # per branch; eigenvalues in ascending order
-    branch_mean_ori = evecs[:, :, -1]  # unit vector per branch, arbitrary sign; row 0 unused
+            T[:, i, j] = np.bincount(segment_ids, weights=v[:, i] * v[:, j], minlength=n_segments + 1)
+    _, evecs = np.linalg.eigh(T)  # per segment; eigenvalues in ascending order
+    segment_mean_ori = evecs[:, :, -1]  # unit vector per segment, arbitrary sign; row 0 unused
 
-    # Step 3: collect start/end coords per branch for rung_dir
-    sort_order = np.argsort(branch_ids, kind='stable')
-    branch_z, branch_y, branch_x, branch_ids = branch_z[sort_order], branch_y[sort_order], branch_x[sort_order], branch_ids[sort_order]
-    unique_bids, split_idx = np.unique(branch_ids, return_index=True)
-    coord_z_splits = np.split(branch_z, split_idx[1:])
-    coord_y_splits = np.split(branch_y, split_idx[1:])
-    coord_x_splits = np.split(branch_x, split_idx[1:])
+    # Step 3: collect start/end coords per segment for rung_dir
+    sort_order = np.argsort(segment_ids, kind='stable')
+    segment_z, segment_y, segment_x, segment_ids = segment_z[sort_order], segment_y[sort_order], segment_x[sort_order], segment_ids[sort_order]
+    unique_bids, split_idx = np.unique(segment_ids, return_index=True)
+    coord_z_splits = np.split(segment_z, split_idx[1:])
+    coord_y_splits = np.split(segment_y, split_idx[1:])
+    coord_x_splits = np.split(segment_x, split_idx[1:])
 
 
-    # Step 4: build branch adjacency THROUGH junction clusters
-    # Branches are separated by junction voxels; branches that touch the
+    # Step 4: build segment adjacency THROUGH junction clusters
+    # segment are separated by junction voxels; segment that touch the
     # same junction cluster are adjacent neighbors.
     jz, jy, jx = np.where(junction_mask)
     del junction_mask
     gc.collect()
 
-    branch_to_juncs = defaultdict(set)
-    junc_to_branches = defaultdict(set)
+    segment_to_juncs = defaultdict(set)
+    junc_to_segment = defaultdict(set)
 
     if len(jz) > 0:
         # group junction voxels into junctions
@@ -247,52 +245,52 @@ def sever_h_junctions(
         else:
             junc_labels = np.arange(len(junc_coords))
 
-        # record each junction-branch-pair
+        # record each junction-segment-pair
         for k in range(len(junc_coords)):
             cz, cy, cx = int(jz[k]), int(jy[k]), int(jx[k])
             jid = int(junc_labels[k]) + 1
             z0, z1 = max(0, cz - 1), min(D, cz + 2)
             y0, y1 = max(0, cy - 1), min(H, cy + 2)
             x0, x1 = max(0, cx - 1), min(W, cx + 2)
-            touching_bids = np.unique(labeled_branches[z0:z1, y0:y1, x0:x1])
-            for branch_id in touching_bids:
-                if branch_id > 0:
-                    branch_to_juncs[branch_id].add(jid)
-                    junc_to_branches[jid].add(branch_id)
+            touching_bids = np.unique(labeled_segments[z0:z1, y0:y1, x0:x1])
+            for segment_id in touching_bids:
+                if segment_id > 0:
+                    segment_to_juncs[segment_id].add(jid)
+                    junc_to_segment[jid].add(segment_id)
 
-    # We are completely done with labeled_branches (free 8.4 GB!)
-    del labeled_branches
+    # We are completely done with labeled_segments (free 8.4 GB!)
+    del labeled_segments
     gc.collect()
 
-    # make each branch-pair with junction between each other neighbors
-    adjacency: list[set] = [set() for _ in range(n_branches + 1)]
-    for jid, br_set in junc_to_branches.items():
+    # make each segment-pair with junction between each other neighbors
+    adjacency: list[set] = [set() for _ in range(n_segments + 1)]
+    for jid, br_set in junc_to_segment.items():
         br_list = list(br_set)
         for i in range(len(br_list)):
             for j in range(len(br_list)):
                 if i != j:
                     adjacency[br_list[i]].add(br_list[j])
 
-    # Step 5: classify each short branch - severing decision
-    sever_mask    = np.zeros(n_branches + 1, dtype=bool)
+    # Step 5: classify each short segment - severing decision
+    sever_mask    = np.zeros(n_segments + 1, dtype=bool)
 
-    for idx, branch_id in enumerate(unique_bids):
-        branch_id = int(branch_id)
-        if branch_sizes[branch_id] > max_rung_length:
+    for idx, segment_id in enumerate(unique_bids):
+        segment_id = int(segment_id)
+        if segmen_sizes[segment_id] > max_rung_length:
             continue
         voxels = np.column_stack([coord_z_splits[idx], coord_y_splits[idx], coord_x_splits[idx]])
-        long_neighbors = [nb for nb in adjacency[branch_id] if branch_sizes[nb] >= min_neighbor_length]
-        rule = classify_branch(voxels, len(branch_to_juncs.get(branch_id, ())),
-                               branch_mean_ori[long_neighbors], ori_z, ori_y, ori_x,
+        trunk_neighbors = [nb for nb in adjacency[segment_id] if segmen_sizes[nb] >= min_trunk_length]
+        rule = classify_segment(voxels, len(segment_to_juncs.get(segment_id, ())),
+                               segment_mean_ori[trunk_neighbors], ori_z, ori_y, ori_x,
                                rung_thresh, perp_thresh)
         if rule is not None:
-            sever_mask[branch_id] = rule
+            sever_mask[segment_id] = rule
 
-    # Step 6: remove severed branches (coordinate-based, 0 GB overhead)
+    # Step 6: remove severed segments (coordinate-based, 0 GB overhead)
     clean_skel = skeleton.copy()
     severed_bids_set = set(np.where(sever_mask)[0])
-    for idx, branch_id in enumerate(unique_bids):
-        if int(branch_id) in severed_bids_set:
+    for idx, segment_id in enumerate(unique_bids):
+        if int(segment_id) in severed_bids_set:
             cz_s = coord_z_splits[idx]
             cy_s = coord_y_splits[idx]
             cx_s = coord_x_splits[idx]
@@ -300,7 +298,7 @@ def sever_h_junctions(
 
     if verbose:
         print(f"  [H-sever] Severed {int(sever_mask.sum())} H-junction rungs "
-              f"(short<={max_rung_length}, neighbor>={min_neighbor_length}, "
+              f"(short<={max_rung_length}, neighbor>={min_trunk_length}, "
               f"perp>{perp_thresh}).", flush=True)
         removed = int(skeleton.sum()) - int(clean_skel.sum())
         print(f"  [H-sever] Skeleton: {int(skeleton.sum())} -> "
@@ -311,17 +309,17 @@ def sever_h_junctions(
 
 def end_voxels(coords, is_end):
     """
-    Return the two end voxels of a fragment.
+    Return the two end voxels of a segment.
 
-    Every fragment voxel has at most two neighbors, so a fragment is a path
+    Every segment voxel has at most two neighbors, so a segment is a path
     (exactly two end voxels), a single voxel (both ends coincide), or a
     closed loop (no end voxels).  A loop has no natural ends; its first voxel
     and the voxel farthest from it are returned.
 
     :param coords: np.ndarray of int, shape (n, 3)
-        (z, y, x) coordinates of the fragment voxels
+        (z, y, x) coordinates of the segment voxels
     :param is_end: np.ndarray of bool, shape (n,)
-        True for voxels with exactly one neighbor within the fragment
+        True for voxels with exactly one neighbor within the segment
     :return: tuple[np.ndarray, np.ndarray]
         coordinates of the head and the tail voxel
     """
@@ -336,10 +334,10 @@ def end_voxels(coords, is_end):
 
 def end_direction(coords, end, ori_z, ori_y, ori_x, offset, radius):
     """
-    Estimate the fiber direction at one end of a fragment.
+    Estimate the fiber direction at one end of a segment.
 
     The estimate is taken around an anchor voxel *offset* voxels inside the
-    fragment (ranked by distance to the end), so that the junction or contact
+    segment (ranked by distance to the end), so that the junction or contact
     at the end itself does not disturb it.  The orientation is the axial mean
     of the orientation field in the (2 * radius + 1)^3 window around the
     anchor; averaging over the whole fiber cross-section suppresses the noise
@@ -348,7 +346,7 @@ def end_direction(coords, end, ori_z, ori_y, ori_x, offset, radius):
     used instead.
 
     :param coords: np.ndarray of int, shape (n, 3)
-        (z, y, x) coordinates of the fragment voxels
+        (z, y, x) coordinates of the segment voxels
     :param end: np.ndarray, shape (3,)
         coordinates of the end voxel
     :param ori_z: np.ndarray of float, shape (D, H, W)
@@ -378,25 +376,25 @@ def end_direction(coords, end, ori_z, ori_y, ori_x, offset, radius):
     return ori.astype(np.float32), (ori if tangent is None else tangent).astype(np.float32)
 
 
-def build_fragment_graph(
+def build_segment_graph(
     skeleton: np.ndarray,
     ori_z: np.ndarray,
     ori_y: np.ndarray,
     ori_x: np.ndarray,
-    min_fragment_length: int,
+    min_segment_length: int,
     endpoint_avg_k: int,
     radius: int,
     verbose: bool = True,
     return_seg_labels: bool = False,
-) -> tuple[list[FiberFragment], np.ndarray | None]:
+) -> tuple[list[FiberSegment], np.ndarray | None]:
     """
-    Split a skeleton into fragments and compute their ends and end directions.
+    Split a skeleton into segments and compute their ends and end directions.
 
     Junction voxels (more than two 26-neighbors, as in *sever_h_junctions*
     and Huang et al. (2016)) are removed; each remaining 26-connected
-    component is a fragment.  Its end voxels are the voxels with exactly one
+    component is a segment.  Its end voxels are the voxels with exactly one
     neighbor (*end_voxels*), and the fiber direction at each end is estimated
-    by *end_direction*.  Junction voxels belong to no fragment, so every
+    by *end_direction*.  Junction voxels belong to no segment, so every
     junction leaves a gap of one to a few voxels that the linking step has to
     bridge.
 
@@ -408,18 +406,18 @@ def build_fragment_graph(
         y component of the unit orientation field
     :param ori_x: np.ndarray of float, shape (D, H, W)
         x component of the unit orientation field
-    :param min_fragment_length: int, default 1
-        currently has no effect: all fragments are kept (only printed)
+    :param min_segment_length: int, default 1
+        currently has no effect: all segments are kept (only printed)
     :param endpoint_avg_k: int, default 5
         distance rank of the anchor voxel used by *end_direction*
-        (its *offset*), i.e. how far inside the fragment the end direction
+        (its *offset*), i.e. how far inside the segment the end direction
         is measured
     :param verbose: bool, default True
-        whether to print the number and lengths of the fragments
+        whether to print the number and lengths of the segments
     :param return_seg_labels: bool, default False
         currently has no effect: no label map is created
-    :return: tuple[list[FiberFragment], None]
-        the fragments, with IDs 1, 2, ...; the second element is always None
+    :return: tuple[list[FiberSegment], None]
+        the segments, with IDs 1, 2, ...; the second element is always None
     """
     t0 = time.time()
     D, H, W = skeleton.shape
@@ -438,34 +436,34 @@ def build_fragment_graph(
     pts = np.argwhere(labels)
     ids, ends = labels[tuple(pts.T)], is_end[tuple(pts.T)]
     del labels, is_end, non_junc  # the volume-sized arrays end here
-    order = np.argsort(ids, kind='stable')  # stable: raster order within a fragment
+    order = np.argsort(ids, kind='stable')  # stable: raster order within a segment
     pts, ids, ends = pts[order], ids[order], ends[order]
     cut = np.flatnonzero(np.diff(ids)) + 1
 
-    # build FiberFragment objects
+    # build FiberSegment objects
     if return_seg_labels:
         seg_labels = np.zeros((D, H, W), dtype=np.int32)
     else:
         seg_labels = None
 
-    fragments: list[FiberFragment] = []
+    segments: list[FiberSegment] = []
     if len(pts) == 0:
         return [], None
-    for fragment_id, (p, e) in enumerate(zip(np.split(pts, cut), np.split(ends, cut)), start=1):
+    for segment_id, (p, e) in enumerate(zip(np.split(pts, cut), np.split(ends, cut)), start=1):
         head, tail = end_voxels(p, e)
         head_ori, head_tangent = end_direction(p, head, ori_z, ori_y, ori_x, endpoint_avg_k, radius)
         tail_ori, tail_tangent = end_direction(p, tail, ori_z, ori_y, ori_x, endpoint_avg_k, radius)
-        fragments.append(FiberFragment(frag_id=fragment_id, coords=p.astype(np.int32),
-                                       head_coord=head.astype(np.float32), tail_coord=tail.astype(np.float32),
-                                       head_ori=head_ori, tail_ori=tail_ori,
-                                       head_tangent=head_tangent, tail_tangent=tail_tangent))
+        segments.append(FiberSegment(seg_id=segment_id, coords=p.astype(np.int32),
+                                     head_coord=head.astype(np.float32), tail_coord=tail.astype(np.float32),
+                                     head_ori=head_ori, tail_ori=tail_ori,
+                                     head_tangent=head_tangent, tail_tangent=tail_tangent))
 
     if verbose:
-        lengths = [f.length for f in fragments]
-        print(f"  [graph] {len(fragments)} fragments kept (len >= {min_fragment_length}). "
+        lengths = [f.length for f in segments]
+        print(f"  [graph] {len(segments)} segments kept (len >= {min_segment_length}). "
               f"Length: min={min(lengths) if lengths else 0}, "
               f"mean={int(np.mean(lengths)) if lengths else 0}, "
               f"max={max(lengths) if lengths else 0}  "
               f"({time.time()-t0:.1f}s)", flush=True)
 
-    return fragments, seg_labels
+    return segments, seg_labels

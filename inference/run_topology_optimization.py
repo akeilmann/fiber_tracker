@@ -35,7 +35,7 @@ from tqdm import tqdm
 # Ensure package root is in path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
-from topology_optimizer.skeleton_graph import sever_h_junctions, build_fragment_graph, FiberFragment
+from topology_optimizer.skeleton_graph import sever_h_junctions, build_segment_graph, FiberSegment
 from topology_optimizer.link_fibers import find_bridge_candidates, optimize_topology, UnionFind
 from topology_optimizer.label_fibers import build_labeled_skeleton, label_fibers
 from topology_optimizer.visualize_results import save_fiber_length_histogram, export_uint16_tiff, export_fibers_as_gad
@@ -176,11 +176,11 @@ DEFAULT_PARAMS = dict(
     sigma_prefilter   = 0.60, #TODO scale by fiber diameter
 
     max_rung_length      = 14, #TODO scale by fiber diameter
-    min_neighbor_length  = 30, #TODO scale by fiber diameter
+    min_trunk_length  = 30, #TODO scale by fiber diameter
     perp_thresh          = 0.50, # sever if angle is above 60°
     rung_thresh          = 0.60, # rule A, sever if angle above 53°
 
-    endpoint_avg_k = 5, # how far inside a fragment the end direction is measured
+    endpoint_avg_k = 5, # how far inside a segment the end direction is measured
 
     # Step 2: Gap bridging
     # TODO justify/test/evaluate
@@ -254,7 +254,7 @@ def run_direct_topology_optimization(
         skeleton=skel,
         ori_z=ori_z, ori_y=ori_y, ori_x=ori_x,
         max_rung_length=params['max_rung_length'],
-        min_neighbor_length=params.get('min_neighbor_length'),
+        min_trunk_length=params.get('min_trunk_length'),
         perp_thresh=params.get('perp_thresh'),
         rung_thresh=params.get('rung_thresh'),
         verbose=verbose,
@@ -264,17 +264,17 @@ def run_direct_topology_optimization(
     print(f"  H-severing complete in {time.time()-t2:.1f}s", flush=True)
 
     # -------------------------------------------------------------------------
-    # STAGE 3: Fragment Graph Construction & Durable Endpoints
+    # STAGE 3: Segment Graph Construction & Durable Endpoints
     # -------------------------------------------------------------------------
     print("\n" + "=" * 85, flush=True)
-    print(" STAGE 3: Fragment Graph Construction & Durable Endpoint Averaging", flush=True)
+    print(" STAGE 3: Segment Graph Construction & Durable Endpoint Averaging", flush=True)
     print("=" * 85, flush=True)
     t3 = time.time()
 
-    fragments, _ = build_fragment_graph(
+    segments, _ = build_segment_graph(
         skeleton=clean_skel,
         ori_z=ori_z, ori_y=ori_y, ori_x=ori_x,
-        min_fragment_length=params['min_fiber_length'],
+        min_segment_length=params['min_fiber_length'],
         endpoint_avg_k=params['endpoint_avg_k'],
         radius=params['radius'],
         verbose=verbose,
@@ -282,10 +282,10 @@ def run_direct_topology_optimization(
     )
     del clean_skel
     gc.collect()
-    print(f"  Fragment graph built in {time.time()-t3:.1f}s -- {len(fragments)} fragments", flush=True)
+    print(f"  Segment graph built in {time.time()-t3:.1f}s -- {len(segments)} segments", flush=True)
 
-    if not fragments:
-        print("  [Warning] No valid fragments found.", flush=True)
+    if not segments:
+        print("  [Warning] No valid segments found.", flush=True)
         return {'N_final_fibers': 0, 'Total_pipeline_runtime_sec': float(time.time() - t_total)}
 
     # -------------------------------------------------------------------------
@@ -297,7 +297,7 @@ def run_direct_topology_optimization(
     t4 = time.time()
 
     candidates = find_bridge_candidates(
-        fragments=fragments,
+        segments=segments,
         ori_z=ori_z, ori_y=ori_y, ori_x=ori_x,
         max_gap_distance=params['max_gap_distance'],
         mutual_thresh=params['mutual_thresh'],
@@ -310,7 +310,7 @@ def run_direct_topology_optimization(
     print(f"  Gap candidate search complete in {time.time()-t4:.1f}s -- {len(candidates)} candidate bridges", flush=True)
 
     # -------------------------------------------------------------------------
-    # STAGE 5: Global Min-Cost Topology Optimization of post-H-sever fragments
+    # STAGE 5: Global Min-Cost Topology Optimization of post-H-sever segments
     # -------------------------------------------------------------------------
     print("\n" + "=" * 85, flush=True)
     print(" STAGE 5: Global Min-Cost Topology Optimization (Degree <= 1)", flush=True)
@@ -318,7 +318,7 @@ def run_direct_topology_optimization(
     t5 = time.time()
 
     chains = optimize_topology(
-        fragments=fragments,
+        segments=segments,
         candidates=candidates,
         max_commit_cost = params["max_commit_cost"],
         verbose=verbose,
@@ -341,7 +341,7 @@ def run_direct_topology_optimization(
     inst_skel = np.lib.format.open_memmap(inst_skel_path, mode='w+', dtype=np.int32, shape=(D, H, W))
     min_flen = params.get('min_fiber_length', params.get('min_chain_length', 5))
     inst_skel, n_kept_chains = build_labeled_skeleton(
-        fragments=fragments,
+        segments=segments,
         chains=chains,
         seg_labels=None,
         volume_shape=(D, H, W),
@@ -349,7 +349,7 @@ def run_direct_topology_optimization(
         out_skel_mmap=inst_skel,
     )
     inst_skel.flush()
-    del fragments, chains
+    del segments, chains
     gc.collect()
 
     inst_vol = np.lib.format.open_memmap(inst_vol_path, mode='w+', dtype=np.int32, shape=(D, H, W))
@@ -629,23 +629,23 @@ def run_chunked_topology_optimization(
             skeleton=sub_skel,
             ori_z=sub_oz, ori_y=sub_oy, ori_x=sub_ox,
             max_rung_length=params['max_rung_length'],
-            min_neighbor_length=params.get('min_neighbor_length', 30),
+            min_trunk_length=params.get('min_trunk_length', 30),
             perp_thresh=params.get('perp_thresh', 0.50),
             verbose=False
         )
 
-        sub_frags, _ = build_fragment_graph(
+        sub_segments, _ = build_segment_graph(
             skeleton=sub_clean_skel,
             ori_z=sub_oz, ori_y=sub_oy, ori_x=sub_ox,
-            min_fragment_length=params['min_fiber_length'],
+            min_segment_length=params['min_fiber_length'],
             verbose=False
         )
 
-        if not sub_frags:
+        if not sub_segments:
             continue
 
         sub_candidates = find_bridge_candidates(
-            fragments=sub_frags,
+            segments=sub_segments,
             ori_z=sub_oz, ori_y=sub_oy, ori_x=sub_ox,
             max_gap_distance=params['max_gap_distance'],
             mutual_thresh=params['mutual_thresh'],
@@ -657,13 +657,13 @@ def run_chunked_topology_optimization(
         )
 
         sub_chains = optimize_topology(
-            fragments=sub_frags,
+            segments=sub_segments,
             candidates=sub_candidates,
             verbose=False
         )
 
         sub_inst_skel, _ = build_labeled_skeleton(
-            fragments=sub_frags,
+            segments=sub_segments,
             chains=sub_chains,
             seg_labels=None,
             volume_shape=sub_int.shape,

@@ -1,6 +1,4 @@
 # TODO similar to but not quite Griesser?
-# TODO match defaults
-# TODO merge code files
 # TODO get rid of greedy algo
 # TODO explain weights
 
@@ -9,7 +7,10 @@ import numpy as np
 from scipy.spatial import cKDTree
 from dataclasses import dataclass
 from collections import defaultdict
-from .skeleton_graph import FiberFragment
+
+from sympy.sets import sets
+
+from .skeleton_graph import FiberSegment
 from topology_optimizer.orientation_utils import axial_mean
 
 
@@ -26,18 +27,18 @@ WEIGHT_GAP_SUPPORT = 50.0         # per unit of |cos| missing (5.0 * 10 in the o
 @dataclass
 class BridgeCandidate:
     """
-    A possible straight bridge from an end of fragment A to an end of fragment B.
+    A possible straight bridge from an end of segment A to an end of segment B.
 
     All directions are expressed for traveling from A to B.
 
     :param seg_id_a: int
-        frag_id of fragment A
+        seg_id of segment A
     :param seg_id_b: int
-        frag_id of fragment B
+        seg_id of segment B
     :param end_a: str
-        end of fragment A that is bridged, 'head' or 'tail'
+        end of segment A that is bridged, 'head' or 'tail'
     :param end_b: str
-        end of fragment B that is bridged, 'head' or 'tail'
+        end of segment B that is bridged, 'head' or 'tail'
     :param coord_a: np.ndarray of float, shape (3,)
         (z, y, x) coordinates of the end voxel of A
     :param coord_b: np.ndarray of float, shape (3,)
@@ -102,25 +103,25 @@ class UnionFind:
 @dataclass
 class FiberChain:
     """
-    Fragments linked into one fiber.
+    Segments linked into one fiber.
 
     :param chain_id: int
         chain ID, starting at 1
-    :param fragment_ids: list[int]
-        frag_ids of the fragments in the chain (not in path order)
+    :param segment_ids: list[int]
+        seg_ids of the segment in the chain (not in path order)
     :param bridge_coords: list[tuple[np.ndarray, np.ndarray]]
         end voxel coordinates (coord_a, coord_b) of every accepted bridge
     :param total_length: int
-        sum of the fragment lengths in voxels; gaps are not counted
+        sum of the segment lengths in voxels; gaps are not counted
     """
     chain_id: int
-    fragment_ids: list[int]          # ordered fragment IDs
+    segment_ids: list[int]          # ordered segment IDs
     bridge_coords: list[tuple]       # list of (coord_a, coord_b) for each bridge
-    total_length: int                # sum of fragment lengths (no gap voxels)
+    total_length: int                # sum of segment lengths (no gap voxels)
 
 
 def find_bridge_candidates(
-        fragments: list[FiberFragment],
+        segments: list[FiberSegment],
         ori_z: np.ndarray,
         ori_y: np.ndarray,
         ori_x: np.ndarray,
@@ -133,9 +134,9 @@ def find_bridge_candidates(
         verbose: bool = True,
 ) -> list[BridgeCandidate]:
     """
-    Find all pairs of fragment ends that could be joined by a straight bridge.
+    Find all pairs of segment ends that could be joined by a straight bridge.
 
-    As in Griesser et al. (2023), all pairs of ends of different fragments
+    As in Griesser et al. (2023), all pairs of ends of different segments
     within *max_gap_distance* are considered and judged by the dot products
     between the two end orientations and between each end orientation and
     the gap direction.  Here these act as filters; the choice among the
@@ -152,11 +153,11 @@ def find_bridge_candidates(
        and never satisfy this.  Gaps of at most 2 voxels, typically the holes
        left by removed junction voxels, skip this test.
 
-    The end orientations must point outward, away from their fragment, as
-    produced by build_fragment_graph.
+    The end orientations must point outward, away from their segment, as
+    produced by build_segment_graph.
 
-    :param fragments: list[FiberFragment]
-        fragments from build_fragment_graph
+    :param segments: list[FiberSegment]
+        segments from build_segment_graph
     :param ori_z: np.ndarray of float, shape (D, H, W)
         z component of the unit orientation field
     :param ori_y: np.ndarray of float, shape (D, H, W)
@@ -182,19 +183,19 @@ def find_bridge_candidates(
     :return: list[BridgeCandidate]
         the candidates, each pair of ends at most once, in no particular order
     """
-    if not fragments:
+    if not segments:
         return []
 
-    # Build array of all fragment endpoints (2 per fragment)
-    ends = [(f.frag_id, side, getattr(f, f'{side}_coord'), getattr(f, f'{side}_ori'))
-            for f in fragments for side in ('head', 'tail')]
+    # Build array of all segment endpoints (2 per segment)
+    ends = [(f.seg_id, side, getattr(f, f'{side}_coord'), getattr(f, f'{side}_ori'))
+            for f in segments for side in ('head', 'tail')]
     coords = np.array([e[2] for e in ends], np.float32)
 
     # Candidate search via KD-tree
     candidates: list[BridgeCandidate] = []
     for i, j in cKDTree(coords).query_pairs(r=max_gap_distance):
         (id_a, end_a, p_a, o_a), (id_b, end_b, p_b, o_b) = ends[i], ends[j]
-        if id_a == id_b:  # the two ends of one fragment
+        if id_a == id_b:  # the two ends of one segment
             continue
         gap = coords[j] - coords[i]
         dist = float(np.linalg.norm(gap))
@@ -262,9 +263,9 @@ def bridge_cost(c):
     return float(cost)
 
 
-def optimize_topology(fragments, candidates, max_commit_cost, verbose=True):
+def optimize_topology(segments, candidates, max_commit_cost, verbose=True):
     """
-    Link fragments into fibers by greedily accepting the cheapest bridges.
+    Link segments into fibers by greedily accepting the cheapest bridges.
 
     The candidates are sorted by bridge_cost and accepted cheapest first,
     the greedy strategy of Griesser et al. (2023); processing sorted
@@ -273,14 +274,14 @@ def optimize_topology(fragments, candidates, max_commit_cost, verbose=True):
 
     * its cost exceeds *max_commit_cost*,
     * one of its two ends is already linked (fibers do not branch), or
-    * its fragments are already in the same chain (no cycles).
+    * its segments are already in the same chain (no cycles).
 
-    A single-voxel fragment has only one end and can therefore be linked
-    only once.  Each resulting group of linked fragments is one chain;
-    unlinked fragments form chains of their own.
+    A single-voxel segment has only one end and can therefore be linked
+    only once.  Each resulting group of linked segments is one chain;
+    unlinked segments form chains of their own.
 
-    :param fragments: list[FiberFragment]
-        fragments from build_fragment_graph
+    :param segments: list[FiberSegment]
+        segments from build_segment_graph
     :param candidates: list[BridgeCandidate]
         candidate bridges from find_bridge_candidates, in any order
     :param max_commit_cost: float or None, default 35.0
@@ -290,13 +291,13 @@ def optimize_topology(fragments, candidates, max_commit_cost, verbose=True):
     :return: list[FiberChain]
         the chains, longest first
     """
-    if not fragments:
+    if not segments:
         return []
-    index = {f.frag_id: i for i, f in enumerate(fragments)}
-    # a single-voxel fragment has only one end ('head'): it can be linked once
-    end_key = lambda fid, end: (fid, 'head' if fragments[index[fid]].length == 1 else end)
+    index = {f.seg_id: i for i, f in enumerate(segments)}
+    # a single-voxel segment has only one end ('head'): it can be linked once
+    end_key = lambda fid, end: (fid, 'head' if segments[index[fid]].length == 1 else end)
 
-    uf, used, accepted = UnionFind(range(len(fragments))), set(), []
+    uf, used, accepted = UnionFind(range(len(segments))), set(), []
     for cost, c in sorted(((bridge_cost(c), c) for c in candidates), key=lambda t: t[0]):
         if max_commit_cost is not None and cost > max_commit_cost:
             break
@@ -310,12 +311,12 @@ def optimize_topology(fragments, candidates, max_commit_cost, verbose=True):
 
     # Build chains from union-find groups
     groups, bridges = defaultdict(list), defaultdict(list)
-    for i in range(len(fragments)):
+    for i in range(len(segments)):
         groups[uf.find(i)].append(i)
     for c in accepted:
         bridges[uf.find(index[c.seg_id_a])].append((c.coord_a, c.coord_b))
-    chains = [FiberChain(cid, [fragments[i].frag_id for i in members], bridges[root],
-                         sum(fragments[i].length for i in members))
+    chains = [FiberChain(cid, [segments[i].seg_id for i in members], bridges[root],
+                         sum(segments[i].length for i in members))
               for cid, (root, members) in enumerate(groups.items(), start=1)]
     chains.sort(key=lambda ch: ch.total_length, reverse=True)
 
