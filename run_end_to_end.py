@@ -23,7 +23,7 @@ import time
 sys.path.insert(0, os.path.abspath(os.path.dirname(__file__)))
 
 from inference.run_inference import run_inference, get_default_input_volume
-from inference.run_topology_optimization import run_topology_optimization, DEFAULT_PARAMS
+from inference.run_topology_optimization import run_direct_topology_optimization, DEFAULT_PARAMS
 from orientation.structure_tensor import compute_structure_tensor_orientation
 
 
@@ -102,7 +102,7 @@ def main():
     opt_params['gad_voxel_size'] = args.gad_voxel_size
     opt_params['export_npy'] = args.export_npy
 
-    metrics = run_topology_optimization(
+    metrics = run_direct_topology_optimization(
         intensity_path=int_path,
         orientation_path=ori_path,
         volume_path=vol_path,

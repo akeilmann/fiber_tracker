@@ -253,12 +253,6 @@ python inference/run_topology_optimization.py \
     --out outputs/my_sample_resolved
 ```
 
-For very large volumes, the optimizer can process overlapping blocks:
-
-```bash
-python inference/run_topology_optimization.py --mode chunked --chunk-size 512 --overlap 256
-```
-
 To evaluate the result against a known ground truth, pass the reference `.gad` file with `--gad path/to/model.gad`.
 
 
