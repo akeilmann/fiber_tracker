@@ -292,16 +292,16 @@ Inference uses overlapping 64³ windows (stride 32) blended with Gaussian weight
 
 The two fields are converted into individual fibers in the following steps:
 
-| Step | Operation |
-| :--- | :--- |
-| 1. Skeletonization | Threshold the smoothed potential (default 0.28) and thin it to one-voxel-wide centerlines. |
-| 2. Border cut | Remove a margin (default 32 voxels) where predictions are less reliable. |
+| Step                 | Operation |
+|:---------------------| :--- |
+| 1. Skeletonization   | Threshold the smoothed potential (default 0.28) and thin it to one-voxel-wide centerlines. |
+| 2. Border cut        | Remove a margin (default 32 voxels) where predictions are less reliable. |
 | 3. Junction severing | Cut short bridges between two fibers (see below). |
-| 4. Fragment graph | Split the skeleton into unbranched fragments and estimate the direction at each end. |
-| 5. Gap candidates | Search for fragment ends that could be connected across a gap (up to 24 voxels). |
-| 6. Global matching | Select the set of connections with the lowest total cost. |
-| 7. Length filter | Remove fibers shorter than `--min-fiber-length` (default 5 voxels). |
-| 8. Label diffusion | Assign every foreground voxel to the nearest labeled centerline. |
+| 4. Fragment graph    | Split the skeleton into unbranched fragments and estimate the direction at each end. |
+| 5. Gap candidates    | Search for fragment ends that could be connected across a gap (up to 24 voxels). |
+| 6. Global matching   | Select the set of connections with the lowest total cost. |
+| 7. Length filter     | Remove fibers shorter than `--min-fiber-length` (default 5 voxels). |
+| 8. Labelling         | Assign every foreground voxel to the nearest labeled centerline. |
 
 **Junction severing.** When two fibers touch, skeletonization typically produces two branch points joined by a short transverse segment, an "H" shape. A branch is removed if it is short (at most 14 voxels) and approximately perpendicular to the fibers it connects:
 

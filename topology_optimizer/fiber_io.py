@@ -1,5 +1,5 @@
 """
-export_gad.py
+fiber_io.py
 =============
 Exports segmented 3D fiber centerlines into GeoDict .gad format (JSON-based).
 Fully compatible with GeoDict, the Altendorf-Jeulin Model, and evaluate_against_gt.py.
@@ -13,6 +13,149 @@ from datetime import datetime
 import numpy as np
 from scipy.spatial import cKDTree
 
+def save_fiber_length_histogram(
+    pred_lengths: list[int],
+    gt_lengths: list[int] | None,
+    out_path: str,
+):
+    """Bar histogram of fiber lengths (predicted vs GT if available)."""
+    fig, ax = plt.subplots(figsize=(9, 5))
+    bins = np.logspace(np.log10(max(1, min(pred_lengths))),
+                       np.log10(max(pred_lengths) + 1), 40)
+
+    ax.hist(pred_lengths, bins=bins, color='steelblue', alpha=0.75, label='Predicted')
+    if gt_lengths:
+        ax.hist(gt_lengths, bins=bins, color='tomato', alpha=0.60, label='Ground Truth')
+
+    ax.set_xscale('log')
+    ax.set_xlabel('Fiber length (voxels)', fontsize=12)
+    ax.set_ylabel('Count', fontsize=12)
+    ax.set_title(f'Fiber Length Distribution  (N_pred={len(pred_lengths)}'
+                 + (f', N_gt={len(gt_lengths)}' if gt_lengths else '') + ')')
+    ax.legend()
+    plt.tight_layout()
+    fig.savefig(out_path, dpi=120)
+    plt.close(fig)
+    print(f"  [viz] Saved fiber length histogram to {out_path}", flush=True)
+
+
+
+def export_uint16_tiff(arr: np.ndarray, out_path: str, verbose: bool = True):
+    """
+    Save 3D array as uint16 TIFF with compression (supports memory-mapped and large volumes).
+    Uses chunked / slice-by-slice writing for volumes > 1GB to ensure low peak RAM usage.
+    """
+    import tifffile
+    import time
+    t0 = time.time()
+
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    D = arr.shape[0]
+    total_bytes = arr.size * 2
+    is_big = total_bytes > (2 * 1024 * 1024 * 1024)
+
+    axes = 'ZYX' if arr.ndim == 3 else ('YX' if arr.ndim == 2 else None)
+    meta = {'axes': axes} if axes else None
+
+    if total_bytes < 1024 * 1024 * 1024 and not isinstance(arr, np.memmap):
+        # Fast in-memory write for arrays < 1 GB (and not memory-mapped)
+        u16_arr = np.asarray(arr, dtype=np.uint16)
+        tifffile.imwrite(
+            out_path,
+            u16_arr,
+            compression='zlib',
+            metadata=meta,
+            bigtiff=is_big,
+        )
+    elif arr.ndim >= 3:
+        # Stream slice-by-slice for huge or memory-mapped volumes to keep resident RAM near zero
+        def _slice_gen():
+            for z in range(D):
+                yield np.asarray(arr[z], dtype=np.uint16)
+
+        tifffile.imwrite(
+            out_path,
+            _slice_gen(),
+            shape=arr.shape,
+            dtype=np.uint16,
+            compression='zlib',
+            metadata=meta,
+            bigtiff=True,
+        )
+    else:
+        u16_arr = np.asarray(arr, dtype=np.uint16)
+        tifffile.imwrite(
+            out_path,
+            u16_arr,
+            compression='zlib',
+            metadata=meta,
+            bigtiff=True,
+        )
+
+    if verbose:
+        size_mb = os.path.getsize(out_path) / (1024 * 1024)
+        print(f"  [export] Saved uint16 TIFF: {out_path} ({size_mb:.1f} MB in {time.time()-t0:.1f}s)", flush=True)
+
+
+def load_gt_centerlines_from_gad(
+    gad_path: str,
+    volume_shape: tuple[int, int, int],
+) -> np.ndarray:
+    """
+    Load ground-truth centerline instance labels from a GAD file.
+
+    Returns
+    -------
+    gt_centerline_vol : (D, H, W) int32 -- each fiber has a unique integer label
+    n_gt_fibers       : int
+    """
+    with open(gad_path, 'r', encoding='utf-8') as f:
+        gad = json.load(f)
+
+    D, H, W = volume_shape
+    voxel_length = gad['Domain']['VoxelLength'][0]
+    domain_length = np.array([
+        gad['Domain']['LengthZ'][0] / voxel_length,
+        gad['Domain']['LengthY'][0] / voxel_length,
+        gad['Domain']['LengthX'][0] / voxel_length,
+    ], dtype=np.float32)
+
+    num_objects = gad['NumberOfObjects']
+    gt_vol = np.zeros((D, H, W), dtype=np.int32)
+
+    for obj_idx in range(1, num_objects + 1):
+        obj_key = f'Object{obj_idx}'
+        obj = gad.get(obj_key, {})
+        p_keys = sorted([k for k in obj.keys() if k.startswith('Point')],
+                        key=lambda x: int(x[5:]))
+        pts_list = []
+        for pk in p_keys:
+            p_val = obj[pk]
+            if isinstance(p_val, dict) and 'Coord' in p_val:
+                pts_list.append(p_val['Coord'][0])
+            elif isinstance(p_val, (list, tuple)):
+                pts_list.append(p_val[0])
+
+        if len(pts_list) < 2:
+            continue
+
+        pts = np.array(pts_list, dtype=np.float32) / voxel_length
+        pts_zyx = pts[:, [2, 1, 0]] % domain_length
+
+        # Dense interpolation
+        n_pts = len(pts_zyx)
+        t_dense = np.linspace(0, 1, n_pts * 12)
+        t_sparse = np.linspace(0, 1, n_pts)
+        dense_z = np.interp(t_dense, t_sparse, pts_zyx[:, 0])
+        dense_y = np.interp(t_dense, t_sparse, pts_zyx[:, 1])
+        dense_x = np.interp(t_dense, t_sparse, pts_zyx[:, 2])
+
+        iz = np.clip(np.round(dense_z).astype(int), 0, D - 1)
+        iy = np.clip(np.round(dense_y).astype(int), 0, H - 1)
+        ix = np.clip(np.round(dense_x).astype(int), 0, W - 1)
+        gt_vol[iz, iy, ix] = obj_idx
+
+    return gt_vol, num_objects
 
 def order_centerline_points(pts: np.ndarray) -> np.ndarray:
     """

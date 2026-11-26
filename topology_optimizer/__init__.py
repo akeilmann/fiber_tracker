@@ -1,8 +1,7 @@
 from .skeleton_graph import sever_h_junctions, build_segment_graph, FiberSegment
 from .link_fibers import find_bridge_candidates, BridgeCandidate, optimize_topology, FiberChain
 from .label_fibers import build_labeled_skeleton, label_fibers
-from .visualize_results import save_diagnostic_slices, save_fiber_length_histogram, save_metrics_text, export_uint16_tiff
-from .export_gad import export_fibers_as_gad
+from .fiber_io import export_fibers_as_gad, save_fiber_length_histogram, export_uint16_tiff
 
 __all__ = [
     'sever_h_junctions',
@@ -14,9 +13,7 @@ __all__ = [
     'FiberChain',
     'build_labeled_skeleton',
     'label_fibers',
-    'save_diagnostic_slices',
     'save_fiber_length_histogram',
-    'save_metrics_text',
     'export_uint16_tiff',
     'export_fibers_as_gad',
 ]
