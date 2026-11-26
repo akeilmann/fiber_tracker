@@ -169,41 +169,37 @@ def load_neural_field_array(path: str, mmap_mode: str = 'r'):
 
 
 DEFAULT_PARAMS = dict(
-    # Skeleton extraction
-    core_threshold    = 0.28,
-    sigma_prefilter   = 0.60,
-    spur_pruning_steps= 0,
+    # Fiber
+    radius = 2,
+    # Skeleton graph
+    core_threshold    = 0.28, #TODO
+    sigma_prefilter   = 0.60, #TODO scale by fiber diameter
 
-    # Step 1: H-junction severing
-    max_rung_length      = 14,
-    min_neighbor_length  = 30,
-    perp_thresh          = 0.50,
+    max_rung_length      = 14, #TODO scale by fiber diameter
+    min_neighbor_length  = 30, #TODO scale by fiber diameter
+    perp_thresh          = 0.50, # sever if angle is above 60°
+    rung_thresh          = 0.60, # rule A, sever if angle above 53°
+
+    endpoint_avg_k = 5, # how far inside a fragment the end direction is measured
 
     # Step 2: Gap bridging
+    # TODO justify/test/evaluate
     max_gap_distance  = 24.0,
     mutual_thresh     = 0.50,
     forward_thresh    = -0.30,
     durable_thresh    = 0.40,
     durable_min_frac  = 0.40,
     n_gap_samples     = 7,
+    max_commit_cost = 35.0,
 
-    # Step 3: Fragment graph
-    min_fragment_length = 1,
+    # Labeling fibers TODO
+    min_fiber_length  = 5, #TODO scale by fiber diameter
+    fg_threshold      = 0.10, # TODO
+    vol_threshold = 0.05,
+    max_watershed_voxels = 2_000_000
 
-    # Step 5: Diffusion & Post-processing
-    min_chain_length  = 5,
-    min_fiber_length  = 5,
-    fg_threshold      = 0.10,
+    # TODO further hidden default parameters
 
-    # Border cleaning
-    cut_border        = 32,
-
-    # GeoDict GAD export
-    export_gad        = False,
-    gad_voxel_size    = 1e-06,
-
-    # NPY export
-    export_npy        = False,
 )
 
 
@@ -258,8 +254,9 @@ def run_direct_topology_optimization(
         skeleton=skel,
         ori_z=ori_z, ori_y=ori_y, ori_x=ori_x,
         max_rung_length=params['max_rung_length'],
-        min_neighbor_length=params.get('min_neighbor_length', 30),
-        perp_thresh=params.get('perp_thresh', 0.50),
+        min_neighbor_length=params.get('min_neighbor_length'),
+        perp_thresh=params.get('perp_thresh'),
+        rung_thresh=params.get('rung_thresh'),
         verbose=verbose,
     )
     del skel
@@ -277,7 +274,9 @@ def run_direct_topology_optimization(
     fragments, _ = build_fragment_graph(
         skeleton=clean_skel,
         ori_z=ori_z, ori_y=ori_y, ori_x=ori_x,
-        min_fragment_length=params['min_fragment_length'],
+        min_fragment_length=params['min_fiber_length'],
+        endpoint_avg_k=params['endpoint_avg_k'],
+        radius=params['radius'],
         verbose=verbose,
         return_seg_labels=False,
     )
@@ -321,6 +320,7 @@ def run_direct_topology_optimization(
     chains = optimize_topology(
         fragments=fragments,
         candidates=candidates,
+        max_commit_cost = params["max_commit_cost"],
         verbose=verbose,
     )
     del candidates, ori_z, ori_y, ori_x, orientation
@@ -358,6 +358,8 @@ def run_direct_topology_optimization(
         volume=volume,
         intensity=intensity,
         fg_threshold=params['fg_threshold'],
+        vol_threshold=params['vol_threshold'],
+        max_watershed_voxels=params['max_watershed_voxels'],
         out_vol_mmap=inst_vol,
         chunk_size=1000000,
         verbose=verbose
@@ -635,7 +637,7 @@ def run_chunked_topology_optimization(
         sub_frags, _ = build_fragment_graph(
             skeleton=sub_clean_skel,
             ori_z=sub_oz, ori_y=sub_oy, ori_x=sub_ox,
-            min_fragment_length=params['min_fragment_length'],
+            min_fragment_length=params['min_fiber_length'],
             verbose=False
         )
 

@@ -385,6 +385,7 @@ def build_fragment_graph(
     ori_x: np.ndarray,
     min_fragment_length: int = 1,
     endpoint_avg_k: int = 5,
+    radius: int = 2,
     verbose: bool = True,
     return_seg_labels: bool = False,
 ) -> tuple[list[FiberFragment], np.ndarray | None]:
@@ -452,8 +453,8 @@ def build_fragment_graph(
         return [], None
     for fragment_id, (p, e) in enumerate(zip(np.split(pts, cut), np.split(ends, cut)), start=1):
         head, tail = end_voxels(p, e)
-        head_ori, head_tangent = end_direction(p, head, ori_z, ori_y, ori_x, endpoint_avg_k)
-        tail_ori, tail_tangent = end_direction(p, tail, ori_z, ori_y, ori_x, endpoint_avg_k)
+        head_ori, head_tangent = end_direction(p, head, ori_z, ori_y, ori_x, endpoint_avg_k, radius)
+        tail_ori, tail_tangent = end_direction(p, tail, ori_z, ori_y, ori_x, endpoint_avg_k, radius)
         fragments.append(FiberFragment(frag_id=fragment_id, coords=p.astype(np.int32),
                                        head_coord=head.astype(np.float32), tail_coord=tail.astype(np.float32),
                                        head_ori=head_ori, tail_ori=tail_ori,
