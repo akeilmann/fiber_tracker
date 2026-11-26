@@ -147,9 +147,9 @@ def find_bridge_candidates(
     3. for gaps longer than 2 voxels, the gap runs through predicted fiber
        material along the gap: at least *durable_min_fraction* of the
        *n_gap_samples* field samples between 15 % and 85 % of the gap satisfy
-       ``|sample . gap_dir| >= durable_thresh``.  Background samples are zero
-       and never satisfy this.  Gaps of at most 2 voxels, typically the holes
-       left by removed junction voxels, skip this test.
+       ``|sample . gap_dir| >= durable_thresh``.  Background samples are masked
+       to zero and never satisfy this.  Gaps of at most 2 voxels, typically the
+       holes left by removed junction voxels, skip this test.
 
     The end orientations must point outward, away from their segment, as
     produced by build_segment_graph.
