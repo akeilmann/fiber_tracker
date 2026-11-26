@@ -64,8 +64,8 @@ def build_labeled_skeleton(
 
     return skel, len(kept)
 
-def build_foreground(inst_skel, foreground_mask=None, volume=None, intensity=None,
-                     fg_threshold=0.10, vol_threshold=0.05):
+def build_foreground(inst_skel, fg_threshold, vol_threshold,
+                     foreground_mask=None, volume=None, intensity=None):
     """
     Build the binary foreground (fiber voxels) to be labeled.
 
@@ -203,8 +203,8 @@ def write_labels(components, label_of_component, nearest_seed_search, labeled_sk
         labels_out[z] = label_slice
 
 
-def label_fibers(inst_skel, foreground_mask=None, volume=None, intensity=None, fg_threshold=0.10,
-                 vol_threshold=0.05, chunk_size=1_000_000, max_watershed_voxels=2_000_000,
+def label_fibers(inst_skel, fg_threshold, vol_threshold, max_watershed_voxels,
+                 foreground_mask=None, volume=None, intensity=None,  chunk_size=1_000_000,
                  verbose=True, out_vol_mmap=None):
     """
     Assign every foreground voxel to a fiber, starting from the labeled centerlines.
@@ -255,8 +255,8 @@ def label_fibers(inst_skel, foreground_mask=None, volume=None, intensity=None, f
     seed_labels = inst_skel[tuple(seeds.T)]
 
     S26 = np.ones((3, 3, 3), bool)
-    cc, n_cc = nd_label(build_foreground(inst_skel, foreground_mask, volume, intensity,
-                                         fg_threshold, vol_threshold), S26)
+    cc, n_cc = nd_label(build_foreground(inst_skel, fg_threshold, vol_threshold,
+                                         foreground_mask, volume, intensity), S26)
     seed_cc = cc[tuple(seeds.T)]
     label_of_component, shared_components = classify_components(n_cc, seed_cc, seed_labels)
 

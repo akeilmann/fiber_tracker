@@ -355,11 +355,11 @@ def run_direct_topology_optimization(
     inst_vol = np.lib.format.open_memmap(inst_vol_path, mode='w+', dtype=np.int32, shape=(D, H, W))
     label_fibers(
         inst_skel=inst_skel,
-        volume=volume,
-        intensity=intensity,
         fg_threshold=params['fg_threshold'],
         vol_threshold=params['vol_threshold'],
         max_watershed_voxels=params['max_watershed_voxels'],
+        volume=volume,
+        intensity=intensity,
         out_vol_mmap=inst_vol,
         chunk_size=1000000,
         verbose=verbose

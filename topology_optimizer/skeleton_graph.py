@@ -144,9 +144,9 @@ def sever_h_junctions(
     ori_y: np.ndarray,
     ori_x: np.ndarray,
     max_rung_length: int,
-    min_neighbor_length: int = 30,
-    perp_thresh: float = 0.50,
-    rung_thresh: float = 0.60,
+    min_neighbor_length: int,
+    perp_thresh: float,
+    rung_thresh: float,
     verbose: bool = True,
 ) -> np.ndarray:
     """
@@ -334,7 +334,7 @@ def end_voxels(coords, is_end):
     return coords[0], coords[far]
 
 
-def end_direction(coords, end, ori_z, ori_y, ori_x, offset=5, radius=2):
+def end_direction(coords, end, ori_z, ori_y, ori_x, offset, radius):
     """
     Estimate the fiber direction at one end of a fragment.
 
@@ -383,9 +383,9 @@ def build_fragment_graph(
     ori_z: np.ndarray,
     ori_y: np.ndarray,
     ori_x: np.ndarray,
-    min_fragment_length: int = 1,
-    endpoint_avg_k: int = 5,
-    radius: int = 2,
+    min_fragment_length: int,
+    endpoint_avg_k: int,
+    radius: int,
     verbose: bool = True,
     return_seg_labels: bool = False,
 ) -> tuple[list[FiberFragment], np.ndarray | None]:

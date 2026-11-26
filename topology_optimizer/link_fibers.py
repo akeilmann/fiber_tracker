@@ -124,12 +124,12 @@ def find_bridge_candidates(
         ori_z: np.ndarray,
         ori_y: np.ndarray,
         ori_x: np.ndarray,
-        max_gap_distance: float = 16.0,
-        mutual_thresh: float = 0.65,
-        forward_thresh: float = -0.30,
-        durable_thresh: float = 0.50,
-        durable_min_fraction: float = 0.50,
-        n_gap_samples: int = 7,
+        max_gap_distance: float,
+        mutual_thresh: float,
+        forward_thresh: float,
+        durable_thresh: float,
+        durable_min_fraction: float,
+        n_gap_samples: int,
         verbose: bool = True,
 ) -> list[BridgeCandidate]:
     """
@@ -262,7 +262,7 @@ def bridge_cost(c):
     return float(cost)
 
 
-def optimize_topology(fragments, candidates, max_commit_cost=35.0, verbose=True):
+def optimize_topology(fragments, candidates, max_commit_cost, verbose=True):
     """
     Link fragments into fibers by greedily accepting the cheapest bridges.
 
