@@ -180,7 +180,7 @@ DEFAULT_PARAMS = dict(
     max_watershed_voxels = 2_000_000,
 
     # TODO further hidden default parameters
-    cut_border = True
+    cut_border = 32
 
 )
 
@@ -486,13 +486,11 @@ if __name__ == '__main__':
     params['gad_voxel_size'] = args.gad_voxel_size
     params['export_npy'] = args.export_npy
 
-    run_topology_optimization(
+    run_direct_topology_optimization(
         intensity_path=args.intensity,
         orientation_path=args.orientation,
         volume_path=args.volume,
         out_dir=args.out,
         gad_path=args.gad,
-        params=params,
-        mode=args.mode,
-        overlap=args.overlap,
+        params=params
     )
